@@ -36,6 +36,22 @@ void *test(void *threadid){
     pthread_exit(NULL);
 }
 
+void *calculate_next_step(void *threadid){
+    mutex_a.lock_shared();
+    for(int i = 0; i < 10000; i++)
+    printf("calculate\n");
+    mutex_a.unlock_shared();
+    pthread_exit(NULL);
+}
+
+void *determine_current_positions(void *threadid){
+    mutex_a.lock_shared();
+    for(int i = 0; i < 10000; i++)
+        printf("determine\n");
+    mutex_a.unlock_shared();
+    pthread_exit(NULL);
+}
+
 //main thread is process 3
 int main() {
     pthread_t process1;
@@ -53,8 +69,14 @@ int main() {
     buffer_a[Z].row = 3;
     buffer_a[Z].col = 6;
 
-    pthread_create(&process1, NULL, test, (void*)1);
-    pthread_create(&process2, NULL, test, (void*)2);
+    //mutex_a.lock();
+    pthread_create(&process1, NULL, calculate_next_step, (void*)1);
+    pthread_create(&process2, NULL, determine_current_positions, (void*)2);
+
+    //mutex_a.unlock();
+    mutex_a.lock_shared();
+    for(int i = 0; i < 10000; i++)
+        printf("finally\n");
 
     pthread_join(process1, NULL);
     pthread_join(process2, NULL);
