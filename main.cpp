@@ -1,7 +1,10 @@
+#include <shared_mutex>
 #include <mutex>
 #include "pthread.h"
 #include "unistd.h"
 #include "stdio.h"
+
+using namespace std;
 
 struct grid_buffer{
     bool buffer[8][7];
@@ -19,12 +22,19 @@ grid_buffer buffer_b[3];
 char buffer_c[3][3];
 char buffer_d[3][3];
 
-/*void *test(void *threadid){
+shared_timed_mutex mutex_a;
+shared_timed_mutex mutex_b;
+shared_timed_mutex mutex_c;
+shared_timed_mutex mutex_d;
+
+void *test(void *threadid){
+    mutex_a.lock_shared();
     long tid = (long)threadid;
-    while(true)
+    for(int i = 0; i < 10; i++)
     printf("hello from thread %d\n", tid);
+    mutex_a.unlock_shared();
     pthread_exit(NULL);
-}*/
+}
 
 //main thread is process 3
 int main() {
@@ -43,7 +53,11 @@ int main() {
     buffer_a[Z].row = 3;
     buffer_a[Z].col = 6;
 
+    pthread_create(&process1, NULL, test, (void*)1);
+    pthread_create(&process2, NULL, test, (void*)2);
 
+    pthread_join(process1, NULL);
+    pthread_join(process2, NULL);
 
 /*    pthread_t *threads = new pthread_t[10];
     for(long i = 0; i < 10; i ++){
