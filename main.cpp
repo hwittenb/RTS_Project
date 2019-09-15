@@ -36,14 +36,36 @@ void *test(void *threadid){
     pthread_exit(NULL);
 }
 
+//this is the method for process 1
 void *calculate_next_step(void *threadid){
-    mutex_a.lock_shared();
+    //true=buffer_a
+    //false=buffer_b
+    bool which_buffer = true;
+    while(true){
+        if(which_buffer){
+            //buffer a will be read from
+            mutex_a.lock_shared();
+            //buffer b will be written to
+            mutex_b.lock();
+
+
+            which_buffer = !which_buffer;
+        }
+        else{
+            mutex_b.lock_shared();
+
+            which_buffer = !which_buffer;
+        }
+    }
+
+/*    mutex_a.lock_shared();
     for(int i = 0; i < 10000; i++)
     printf("calculate\n");
     mutex_a.unlock_shared();
-    pthread_exit(NULL);
+    pthread_exit(NULL);*/
 }
 
+//this is the method for process 2
 void *determine_current_positions(void *threadid){
     mutex_a.lock_shared();
     for(int i = 0; i < 10000; i++)
