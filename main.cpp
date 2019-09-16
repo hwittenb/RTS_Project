@@ -27,51 +27,143 @@ shared_timed_mutex mutex_b;
 shared_timed_mutex mutex_c;
 shared_timed_mutex mutex_d;
 
-void *test(void *threadid){
-    mutex_a.lock_shared();
-    long tid = (long)threadid;
-    for(int i = 0; i < 10; i++)
-    printf("hello from thread %d\n", tid);
-    mutex_a.unlock_shared();
-    pthread_exit(NULL);
-}
-
 //this is the method for process 1
-void *calculate_next_step(void *threadid){
+void *calculate_next_step(void *threadid) {
     //true=buffer_a
     //false=buffer_b
     bool which_buffer = true;
-    while(true){
-        if(which_buffer){
+    while (true) {
+        if (which_buffer) {
+            printf("a\n");
             //buffer a will be read from
             mutex_a.lock_shared();
+            //x moves diagonally
+            int next_row_x = (buffer_a[X].row + 1) % 8;
+            int next_col_x = (buffer_a[X].col + 1) % 7;
+
+            //y moves vertically
+            int next_row_y = (buffer_a[Y].row + 1) % 8;
+
+            //z moves horizontally
+            int next_col_z = (buffer_a[Z].col + 1) % 7;
+            mutex_a.unlock_shared();
+
             //buffer b will be written to
             mutex_b.lock();
+            //saves the next position of train X in buffer b
+            buffer_b[X].buffer[buffer_b[X].row][buffer_b[X].col] = false;
+            buffer_b[X].buffer[next_row_x][next_col_x] = true;
+            buffer_b[X].row = next_row_x;
+            buffer_b[X].col = next_col_x;
 
+            //saves the next position of train Y in buffer b
+            buffer_b[Y].buffer[buffer_b[Y].row][buffer_b[Y].col] = false;
+            buffer_b[Y].buffer[next_row_y][buffer_b[Y].col] = true;
+            buffer_b[Y].row = next_row_y;
 
-            which_buffer = !which_buffer;
-        }
-        else{
+            //saves the next position of train Z in buffer b
+            buffer_b[Z].buffer[buffer_b[Z].row][buffer_b[Z].col] = false;
+            buffer_b[Z].buffer[buffer_b[Z].row][next_col_z] = true;
+            buffer_b[Z].col = next_col_z;
+            mutex_b.unlock();
+        } else {
+            printf("b\n");
+            //buffer b will be read from
             mutex_b.lock_shared();
+            //x moves diagonally
+            int next_row_x = (buffer_b[X].row + 1) % 8;
+            int next_col_x = (buffer_b[X].col + 1) % 7;
 
-            which_buffer = !which_buffer;
+            //y moves vertically
+            int next_row_y = (buffer_b[Y].row + 1) % 8;
+
+            //z moves horizontally
+            int next_col_z = (buffer_b[Z].col + 1) % 7;
+            mutex_b.unlock_shared();
+
+            //buffer a will be written to
+            mutex_a.lock();
+            //saves the next position of train X in buffer a
+            buffer_a[X].buffer[buffer_a[X].row][buffer_a[X].col] = false;
+            buffer_a[X].buffer[next_row_x][next_col_x] = true;
+            buffer_a[X].row = next_row_x;
+            buffer_a[X].col = next_col_x;
+
+            //saves the next position of train Y in buffer b
+            buffer_a[Y].buffer[buffer_a[Y].row][buffer_a[Y].col] = false;
+            buffer_a[Y].buffer[next_row_y][buffer_a[Y].col] = true;
+            buffer_a[Y].row = next_row_y;
+
+            //saves the next position of train Z in buffer b
+            buffer_a[Z].buffer[buffer_a[Z].row][buffer_a[Z].col] = false;
+            buffer_a[Z].buffer[buffer_a[Z].row][next_col_z] = true;
+            buffer_a[Z].col = next_col_z;
+            mutex_b.unlock();
         }
+        which_buffer = !which_buffer;
+        sleep(1);
     }
-
-/*    mutex_a.lock_shared();
-    for(int i = 0; i < 10000; i++)
-    printf("calculate\n");
-    mutex_a.unlock_shared();
-    pthread_exit(NULL);*/
 }
 
 //this is the method for process 2
 void *determine_current_positions(void *threadid){
-    mutex_a.lock_shared();
-    for(int i = 0; i < 10000; i++)
-        printf("determine\n");
-    mutex_a.unlock_shared();
-    pthread_exit(NULL);
+    //true=buffer_a and buffer_c
+    //false=buffer_b and buffer_d
+    bool which_buffer = true;
+    while(true){
+        if(which_buffer){
+            //buffer_a will be read from
+            mutex_a.lock_shared();
+            int current_row_x = buffer_a[X].row;
+            int current_col_x = buffer_a[X].col;
+
+            int current_row_y = buffer_a[Y].row;
+            int current_col_y = buffer_a[Y].col;
+
+            int current_row_z = buffer_a[Z].row;
+            int current_col_z = buffer_a[Z].col;
+            mutex_a.unlock_shared();
+
+            //buffer c will be updated to current position values
+            mutex_c.lock();
+            buffer_c[0][1] = '0' + current_row_x;
+            buffer_c[0][2] = '0' + current_col_x;
+
+            buffer_c[1][1] = '0' + current_row_y;
+            buffer_c[1][2] = '0' + current_col_y;
+
+            buffer_c[2][1] = '0' + current_row_z;
+            buffer_c[2][2] = '0' + current_col_z;
+            mutex_c.unlock();
+        }
+        else{
+            //buffer_b will be read from
+            mutex_b.lock_shared();
+            int current_row_x = buffer_b[X].row;
+            int current_col_x = buffer_b[X].col;
+
+            int current_row_y = buffer_b[Y].row;
+            int current_col_y = buffer_b[Y].col;
+
+            int current_row_z = buffer_b[Z].row;
+            int current_col_z = buffer_b[Z].col;
+            mutex_b.unlock_shared();
+
+            //buffer d will be updated to current position values
+            mutex_d.lock();
+            buffer_d[0][1] = '0' + current_row_x;
+            buffer_d[0][2] = '0' + current_col_x;
+
+            buffer_d[1][1] = '0' + current_row_y;
+            buffer_d[1][2] = '0' + current_col_y;
+
+            buffer_d[2][1] = '0' + current_row_z;
+            buffer_d[2][2] = '0' + current_col_z;
+            mutex_d.unlock();
+        }
+        which_buffer = !which_buffer;
+        sleep(1);
+    }
 }
 
 //main thread is process 3
@@ -91,11 +183,54 @@ int main() {
     buffer_a[Z].row = 3;
     buffer_a[Z].col = 6;
 
-    //mutex_a.lock();
+    buffer_c[0][0] = 'X';
+    buffer_c[1][0] = 'Y';
+    buffer_c[2][0] = 'Z';
+
+    buffer_d[0][0] = 'X';
+    buffer_d[1][0] = 'Y';
+    buffer_d[2][0] = 'Z';
+
     pthread_create(&process1, NULL, calculate_next_step, (void*)1);
     pthread_create(&process2, NULL, determine_current_positions, (void*)2);
 
-    //mutex_a.unlock();
+    //allows time for buffer c to be filled to be checked by P3
+    sleep(1);
+
+    //true=buffer_c
+    //false=buffer_d
+    bool which_buffer = true;
+    while(true){
+        if(which_buffer){
+            mutex_b.lock_shared();
+            for(int plane = 0; plane < 3; plane++){
+                printf("plane %d", plane);
+                for(int row = 0; row < 8; row++){
+                    for(int col = 0; col < 7; col++){
+                        printf("%d ", buffer_b[plane].buffer[row][col]);
+                    }
+                    printf("\n");
+                }
+            }
+            mutex_b.unlock_shared();
+        }
+        else{
+            mutex_a.lock_shared();
+            for(int plane = 0; plane < 3; plane++){
+                printf("plane %d\n", plane);
+                for(int row = 0; row < 8; row++){
+                    for(int col = 0; col < 7; col++){
+                        printf("%d ", buffer_a[plane].buffer[row][col]);
+                    }
+                    printf("\n");
+                }
+            }
+            mutex_a.unlock_shared();
+        }
+        which_buffer = !which_buffer;
+        sleep(1);
+    }
+
     mutex_a.lock_shared();
     for(int i = 0; i < 10000; i++)
         printf("finally\n");
