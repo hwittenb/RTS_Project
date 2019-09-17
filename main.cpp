@@ -1,8 +1,9 @@
-#include <shared_mutex>
-#include <mutex>
 #include "pthread.h"
 #include "unistd.h"
 #include "stdio.h"
+#include <boost/thread/shared_mutex.hpp>
+
+//compile with g++ main.cpp -lpthread -lboost_system -lboost_thread
 
 using namespace std;
 
@@ -22,10 +23,10 @@ grid_buffer buffer_b[3];
 char buffer_c[3][3];
 char buffer_d[3][3];
 
-shared_timed_mutex mutex_a;
-shared_timed_mutex mutex_b;
-shared_timed_mutex mutex_c;
-shared_timed_mutex mutex_d;
+boost::shared_mutex mutex_a;
+boost::shared_mutex mutex_b;
+boost::shared_mutex mutex_c;
+boost::shared_mutex mutex_d;
 
 //this is the method for process 1
 void *calculate_next_step(void *threadid) {
@@ -34,7 +35,6 @@ void *calculate_next_step(void *threadid) {
     bool which_buffer = true;
     while (true) {
         if (which_buffer) {
-            printf("a\n");
             //buffer a will be read from
             mutex_a.lock_shared();
             //x moves diagonally
@@ -43,8 +43,10 @@ void *calculate_next_step(void *threadid) {
 
             //y moves vertically
             int next_row_y = (buffer_a[Y].row + 1) % 8;
+			int next_col_y = 2;
 
             //z moves horizontally
+			int next_row_z = 3;
             int next_col_z = (buffer_a[Z].col + 1) % 7;
             mutex_a.unlock_shared();
 
@@ -58,16 +60,17 @@ void *calculate_next_step(void *threadid) {
 
             //saves the next position of train Y in buffer b
             buffer_b[Y].buffer[buffer_b[Y].row][buffer_b[Y].col] = false;
-            buffer_b[Y].buffer[next_row_y][buffer_b[Y].col] = true;
+            buffer_b[Y].buffer[next_row_y][next_col_y] = true;
             buffer_b[Y].row = next_row_y;
+			buffer_b[Y].col = next_col_y;
 
             //saves the next position of train Z in buffer b
             buffer_b[Z].buffer[buffer_b[Z].row][buffer_b[Z].col] = false;
-            buffer_b[Z].buffer[buffer_b[Z].row][next_col_z] = true;
+            buffer_b[Z].buffer[next_row_z][next_col_z] = true;
+			buffer_b[Z].row = next_row_z;
             buffer_b[Z].col = next_col_z;
             mutex_b.unlock();
         } else {
-            printf("b\n");
             //buffer b will be read from
             mutex_b.lock_shared();
             //x moves diagonally
@@ -76,8 +79,10 @@ void *calculate_next_step(void *threadid) {
 
             //y moves vertically
             int next_row_y = (buffer_b[Y].row + 1) % 8;
+			int next_col_y = 2;
 
             //z moves horizontally
+			int next_row_z = 3;
             int next_col_z = (buffer_b[Z].col + 1) % 7;
             mutex_b.unlock_shared();
 
@@ -91,14 +96,16 @@ void *calculate_next_step(void *threadid) {
 
             //saves the next position of train Y in buffer b
             buffer_a[Y].buffer[buffer_a[Y].row][buffer_a[Y].col] = false;
-            buffer_a[Y].buffer[next_row_y][buffer_a[Y].col] = true;
+            buffer_a[Y].buffer[next_row_y][next_col_y] = true;
             buffer_a[Y].row = next_row_y;
+			buffer_a[Y].col = next_col_y;
 
             //saves the next position of train Z in buffer b
             buffer_a[Z].buffer[buffer_a[Z].row][buffer_a[Z].col] = false;
-            buffer_a[Z].buffer[buffer_a[Z].row][next_col_z] = true;
+            buffer_a[Z].buffer[next_row_z][next_col_z] = true;
+			buffer_a[Z].row = next_row_z;
             buffer_a[Z].col = next_col_z;
-            mutex_b.unlock();
+            mutex_a.unlock();
         }
         which_buffer = !which_buffer;
         sleep(1);
@@ -199,54 +206,44 @@ int main() {
 
     //true=buffer_c
     //false=buffer_d
-    bool which_buffer = true;
+	char train_name[] = {'X', 'Y', 'Z'};
+	int time = 1;
     while(true){
-        if(which_buffer){
-            mutex_b.lock_shared();
-            for(int plane = 0; plane < 3; plane++){
-                printf("plane %d", plane);
-                for(int row = 0; row < 8; row++){
-                    for(int col = 0; col < 7; col++){
-                        printf("%d ", buffer_b[plane].buffer[row][col]);
-                    }
-                    printf("\n");
-                }
-            }
-            mutex_b.unlock_shared();
-        }
-        else{
-            mutex_a.lock_shared();
-            for(int plane = 0; plane < 3; plane++){
-                printf("plane %d\n", plane);
-                for(int row = 0; row < 8; row++){
-                    for(int col = 0; col < 7; col++){
-                        printf("%d ", buffer_a[plane].buffer[row][col]);
-                    }
-                    printf("\n");
-                }
-            }
-            mutex_a.unlock_shared();
-        }
-        which_buffer = !which_buffer;
-        sleep(1);
+		bool collision = false;
+		if(time%2 != 0){
+			mutex_c.lock_shared();
+			for(int row = 0; row < 3; row++){
+				for(int compare_row = row+1; compare_row < 3; compare_row++){
+					if(buffer_c[row][1] == buffer_c[compare_row][1] && buffer_c[row][2] == buffer_c[compare_row][2]){
+						collision = true;
+						printf("Collision between %c and %c at second %d, location (%c,%c).\n", train_name[row], train_name[compare_row], time, buffer_c[row][1], buffer_c[row][2]);
+						break;
+					}
+				}
+			}
+			mutex_c.unlock_shared();
+		}
+		else{
+			mutex_d.lock_shared();
+			for(int row = 0; row < 3; row++){
+				for(int compare_row = row+1; compare_row < 3; compare_row++){
+					if(buffer_d[row][1] == buffer_d[compare_row][1] && buffer_d[row][2] == buffer_d[compare_row][2]){
+						collision = true;
+						printf("Collision between %c and %c at second %d, location (%c,%c).\n", train_name[row], train_name[compare_row], time, buffer_d[row][1], buffer_d[row][2]);
+						break;
+					}
+				}
+			}
+			mutex_d.unlock_shared();
+		}
+		if(!collision){
+			printf("No collision at time %d.\n", time);
+		}
+		time++;
+		sleep(1);
     }
-
-    mutex_a.lock_shared();
-    for(int i = 0; i < 10000; i++)
-        printf("finally\n");
 
     pthread_join(process1, NULL);
     pthread_join(process2, NULL);
-
-/*    pthread_t *threads = new pthread_t[10];
-    for(long i = 0; i < 10; i ++){
-        pthread_create(&threads[i], NULL, test, (void *)i);
-    }
-
-    for(long i = 0; i < 10; i++){
-        pthread_join(threads[i], NULL);
-    }
-
-    delete [] threads;*/
     return 0;
 }
