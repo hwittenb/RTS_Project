@@ -121,6 +121,7 @@ void *determine_current_positions(void *threadid){
         if(which_buffer){
             //buffer_a will be read from
             mutex_a.lock_shared();
+            //stores the current position of each of the trains
             int current_row_x = buffer_a[X].row;
             int current_col_x = buffer_a[X].col;
 
@@ -133,6 +134,7 @@ void *determine_current_positions(void *threadid){
 
             //buffer c will be updated to current position values
             mutex_c.lock();
+            //updates the appropriate buffer with current train positions. Stored as a character
             buffer_c[0][1] = '0' + current_row_x;
             buffer_c[0][2] = '0' + current_col_x;
 
@@ -146,6 +148,7 @@ void *determine_current_positions(void *threadid){
         else{
             //buffer_b will be read from
             mutex_b.lock_shared();
+            //stores the current position of each of the trains
             int current_row_x = buffer_b[X].row;
             int current_col_x = buffer_b[X].col;
 
@@ -158,6 +161,7 @@ void *determine_current_positions(void *threadid){
 
             //buffer d will be updated to current position values
             mutex_d.lock();
+            //updates the appropriate buffer with current train positions. Stored as a character
             buffer_d[0][1] = '0' + current_row_x;
             buffer_d[0][2] = '0' + current_col_x;
 
@@ -178,6 +182,7 @@ int main() {
     pthread_t process1;
     pthread_t process2;
 
+    //initializes buffers for starting values
     buffer_a[X].buffer[0][0] = true;
     buffer_a[X].row = 0;
     buffer_a[X].col = 0;
@@ -198,6 +203,7 @@ int main() {
     buffer_d[1][0] = 'Y';
     buffer_d[2][0] = 'Z';
 
+    //creates the two additional threads
     pthread_create(&process1, NULL, calculate_next_step, (void*)1);
     pthread_create(&process2, NULL, determine_current_positions, (void*)2);
 
@@ -208,10 +214,13 @@ int main() {
     //false=buffer_d
 	char train_name[] = {'X', 'Y', 'Z'};
 	int time = 1;
+	//P3 will be for collision detection
     while(true){
 		bool collision = false;
+		//the current time will determine which buffer to read from
 		if(time%2 != 0){
 			mutex_c.lock_shared();
+			//checks the buffer to see if any of the trains are at the same point
 			for(int row = 0; row < 3; row++){
 				for(int compare_row = row+1; compare_row < 3; compare_row++){
 					if(buffer_c[row][1] == buffer_c[compare_row][1] && buffer_c[row][2] == buffer_c[compare_row][2]){
@@ -225,6 +234,7 @@ int main() {
 		}
 		else{
 			mutex_d.lock_shared();
+			//checks the buffer to see if any of the trains are at the same point
 			for(int row = 0; row < 3; row++){
 				for(int compare_row = row+1; compare_row < 3; compare_row++){
 					if(buffer_d[row][1] == buffer_d[compare_row][1] && buffer_d[row][2] == buffer_d[compare_row][2]){
