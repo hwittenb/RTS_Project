@@ -212,7 +212,6 @@ int main() {
 
     //true=buffer_c
     //false=buffer_d
-	char train_name[] = {'X', 'Y', 'Z'};
 	int time = 1;
 	//P3 will be for collision detection
     while(true){
@@ -225,7 +224,7 @@ int main() {
 				for(int compare_row = row+1; compare_row < 3; compare_row++){
 					if(buffer_c[row][1] == buffer_c[compare_row][1] && buffer_c[row][2] == buffer_c[compare_row][2]){
 						collision = true;
-						printf("Collision between %c and %c at second %d, location (%c,%c).\n", train_name[row], train_name[compare_row], time, buffer_c[row][1], buffer_c[row][2]);
+						printf("Collision between %c and %c at second %d, location (%c,%c).\n", buffer_c[row][0], buffer_c[compare_row][0], time, buffer_c[row][1], buffer_c[row][2]);
 						break;
 					}
 				}
@@ -239,7 +238,7 @@ int main() {
 				for(int compare_row = row+1; compare_row < 3; compare_row++){
 					if(buffer_d[row][1] == buffer_d[compare_row][1] && buffer_d[row][2] == buffer_d[compare_row][2]){
 						collision = true;
-						printf("Collision between %c and %c at second %d, location (%c,%c).\n", train_name[row], train_name[compare_row], time, buffer_d[row][1], buffer_d[row][2]);
+						printf("Collision between %c and %c at second %d, location (%c,%c).\n", buffer_d[row][0], buffer_d[compare_row][0], time, buffer_d[row][1], buffer_d[row][2]);
 						break;
 					}
 				}
