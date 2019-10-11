@@ -1,9 +1,8 @@
 #include "pthread.h"
 #include "unistd.h"
-#include "stdio.h"
-#include <boost/thread/shared_mutex.hpp>
+#include <cstdio>
 
-//compile with g++ main.cpp -lpthread -lboost_system -lboost_thread
+//compile with g++ main.cpp -lpthread
 
 using namespace std;
 
@@ -23,10 +22,10 @@ grid_buffer buffer_b[3];
 char buffer_c[3][3];
 char buffer_d[3][3];
 
-boost::shared_mutex mutex_a;
-boost::shared_mutex mutex_b;
-boost::shared_mutex mutex_c;
-boost::shared_mutex mutex_d;
+pthread_rwlock_t lock_a;
+pthread_rwlock_t lock_b;
+pthread_rwlock_t lock_c;
+pthread_rwlock_t lock_d;
 
 //this is the method for process 1
 void *calculate_next_step(void *threadid) {
@@ -36,7 +35,7 @@ void *calculate_next_step(void *threadid) {
     while (true) {
         if (which_buffer) {
             //buffer a will be read from
-            mutex_a.lock_shared();
+            pthread_rwlock_rdlock(&lock_a);
             //x moves diagonally
             int next_row_x = (buffer_a[X].row + 1) % 8;
             int next_col_x = (buffer_a[X].col + 1) % 7;
@@ -48,10 +47,10 @@ void *calculate_next_step(void *threadid) {
             //z moves horizontally
 			int next_row_z = 3;
             int next_col_z = (buffer_a[Z].col + 1) % 7;
-            mutex_a.unlock_shared();
+            pthread_rwlock_unlock(&lock_a);
 
             //buffer b will be written to
-            mutex_b.lock();
+            pthread_rwlock_wrlock(&lock_b);
             //saves the next position of train X in buffer b
             buffer_b[X].buffer[buffer_b[X].row][buffer_b[X].col] = false;
             buffer_b[X].buffer[next_row_x][next_col_x] = true;
@@ -69,10 +68,10 @@ void *calculate_next_step(void *threadid) {
             buffer_b[Z].buffer[next_row_z][next_col_z] = true;
 			buffer_b[Z].row = next_row_z;
             buffer_b[Z].col = next_col_z;
-            mutex_b.unlock();
+            pthread_rwlock_unlock(&lock_b);
         } else {
             //buffer b will be read from
-            mutex_b.lock_shared();
+            pthread_rwlock_rdlock(&lock_b);
             //x moves diagonally
             int next_row_x = (buffer_b[X].row + 1) % 8;
             int next_col_x = (buffer_b[X].col + 1) % 7;
@@ -84,10 +83,10 @@ void *calculate_next_step(void *threadid) {
             //z moves horizontally
 			int next_row_z = 3;
             int next_col_z = (buffer_b[Z].col + 1) % 7;
-            mutex_b.unlock_shared();
+            pthread_rwlock_unlock(&lock_b);
 
             //buffer a will be written to
-            mutex_a.lock();
+            pthread_rwlock_wrlock(&lock_a);
             //saves the next position of train X in buffer a
             buffer_a[X].buffer[buffer_a[X].row][buffer_a[X].col] = false;
             buffer_a[X].buffer[next_row_x][next_col_x] = true;
@@ -105,7 +104,7 @@ void *calculate_next_step(void *threadid) {
             buffer_a[Z].buffer[next_row_z][next_col_z] = true;
 			buffer_a[Z].row = next_row_z;
             buffer_a[Z].col = next_col_z;
-            mutex_a.unlock();
+            pthread_rwlock_unlock(&lock_a);
         }
         which_buffer = !which_buffer;
         sleep(1);
@@ -120,7 +119,7 @@ void *determine_current_positions(void *threadid){
     while(true){
         if(which_buffer){
             //buffer_a will be read from
-            mutex_a.lock_shared();
+            pthread_rwlock_rdlock(&lock_a);
             //stores the current position of each of the trains
             int current_row_x = buffer_a[X].row;
             int current_col_x = buffer_a[X].col;
@@ -130,10 +129,10 @@ void *determine_current_positions(void *threadid){
 
             int current_row_z = buffer_a[Z].row;
             int current_col_z = buffer_a[Z].col;
-            mutex_a.unlock_shared();
+            pthread_rwlock_unlock(&lock_a);
 
             //buffer c will be updated to current position values
-            mutex_c.lock();
+            pthread_rwlock_wrlock(&lock_c);
             //updates the appropriate buffer with current train positions. Stored as a character
             buffer_c[0][1] = '0' + current_row_x;
             buffer_c[0][2] = '0' + current_col_x;
@@ -143,11 +142,11 @@ void *determine_current_positions(void *threadid){
 
             buffer_c[2][1] = '0' + current_row_z;
             buffer_c[2][2] = '0' + current_col_z;
-            mutex_c.unlock();
+            pthread_rwlock_unlock(&lock_c);
         }
         else{
             //buffer_b will be read from
-            mutex_b.lock_shared();
+            pthread_rwlock_rdlock(&lock_b);
             //stores the current position of each of the trains
             int current_row_x = buffer_b[X].row;
             int current_col_x = buffer_b[X].col;
@@ -157,10 +156,10 @@ void *determine_current_positions(void *threadid){
 
             int current_row_z = buffer_b[Z].row;
             int current_col_z = buffer_b[Z].col;
-            mutex_b.unlock_shared();
+            pthread_rwlock_unlock(&lock_b);
 
             //buffer d will be updated to current position values
-            mutex_d.lock();
+            pthread_rwlock_wrlock(&lock_d);
             //updates the appropriate buffer with current train positions. Stored as a character
             buffer_d[0][1] = '0' + current_row_x;
             buffer_d[0][2] = '0' + current_col_x;
@@ -170,7 +169,7 @@ void *determine_current_positions(void *threadid){
 
             buffer_d[2][1] = '0' + current_row_z;
             buffer_d[2][2] = '0' + current_col_z;
-            mutex_d.unlock();
+            pthread_rwlock_unlock(&lock_d);
         }
         which_buffer = !which_buffer;
         sleep(1);
@@ -181,6 +180,11 @@ void *determine_current_positions(void *threadid){
 int main() {
     pthread_t process1;
     pthread_t process2;
+
+    pthread_rwlock_init(&lock_a, nullptr);
+    pthread_rwlock_init(&lock_b, nullptr);
+    pthread_rwlock_init(&lock_c, nullptr);
+    pthread_rwlock_init(&lock_d, nullptr);
 
     //initializes buffers for starting values
     buffer_a[X].buffer[0][0] = true;
@@ -204,8 +208,8 @@ int main() {
     buffer_d[2][0] = 'Z';
 
     //creates the two additional threads
-    pthread_create(&process1, NULL, calculate_next_step, (void*)1);
-    pthread_create(&process2, NULL, determine_current_positions, (void*)2);
+    pthread_create(&process1, nullptr, calculate_next_step, (void*)1);
+    pthread_create(&process2, nullptr, determine_current_positions, (void*)2);
 
     //allows time for buffer c to be filled to be checked by P3
     sleep(1);
@@ -218,7 +222,7 @@ int main() {
 		bool collision = false;
 		//the current time will determine which buffer to read from
 		if(time%2 != 0){
-			mutex_c.lock_shared();
+			pthread_rwlock_rdlock(&lock_c);
 			//checks the buffer to see if any of the trains are at the same point
 			for(int row = 0; row < 3; row++){
 				for(int compare_row = row+1; compare_row < 3; compare_row++){
@@ -229,10 +233,10 @@ int main() {
 					}
 				}
 			}
-			mutex_c.unlock_shared();
+			pthread_rwlock_unlock(&lock_c);
 		}
 		else{
-			mutex_d.lock_shared();
+			pthread_rwlock_rdlock(&lock_d);
 			//checks the buffer to see if any of the trains are at the same point
 			for(int row = 0; row < 3; row++){
 				for(int compare_row = row+1; compare_row < 3; compare_row++){
@@ -243,7 +247,7 @@ int main() {
 					}
 				}
 			}
-			mutex_d.unlock_shared();
+			pthread_rwlock_unlock(&lock_d);
 		}
 		if(!collision){
 			printf("No collision at time %d.\n", time);
@@ -252,7 +256,7 @@ int main() {
 		sleep(1);
     }
 
-    pthread_join(process1, NULL);
-    pthread_join(process2, NULL);
+    pthread_join(process1, nullptr);
+    pthread_join(process2, nullptr);
     return 0;
 }
