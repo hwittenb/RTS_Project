@@ -1,10 +1,12 @@
 #include "pthread.h"
 #include "unistd.h"
 #include <cstdio>
+#include <chrono>
 
 //compile with g++ main.cpp -lpthread
 
 using namespace std;
+using namespace std::chrono;
 
 struct grid_buffer{
     bool buffer[8][7];
@@ -26,6 +28,8 @@ pthread_rwlock_t lock_a;
 pthread_rwlock_t lock_b;
 pthread_rwlock_t lock_c;
 pthread_rwlock_t lock_d;
+
+pthread_barrier_t timing_barrier;
 
 //this is the method for process 1
 void *calculate_next_step(void *threadid) {
@@ -107,7 +111,8 @@ void *calculate_next_step(void *threadid) {
             pthread_rwlock_unlock(&lock_a);
         }
         which_buffer = !which_buffer;
-        sleep(1);
+        //waits for each of the other threads to finish execution
+        pthread_barrier_wait(&timing_barrier);
     }
 }
 
@@ -172,7 +177,8 @@ void *determine_current_positions(void *threadid){
             pthread_rwlock_unlock(&lock_d);
         }
         which_buffer = !which_buffer;
-        sleep(1);
+        //waits for each of the other threads to finish execution
+        pthread_barrier_wait(&timing_barrier);
     }
 }
 
@@ -185,6 +191,8 @@ int main() {
     pthread_rwlock_init(&lock_b, nullptr);
     pthread_rwlock_init(&lock_c, nullptr);
     pthread_rwlock_init(&lock_d, nullptr);
+
+    pthread_barrier_init(&timing_barrier, nullptr, 3);
 
     //initializes buffers for starting values
     buffer_a[X].buffer[0][0] = true;
@@ -208,18 +216,22 @@ int main() {
     buffer_d[2][0] = 'Z';
 
     //creates the two additional threads
-    pthread_create(&process1, nullptr, calculate_next_step, (void*)1);
-    pthread_create(&process2, nullptr, determine_current_positions, (void*)2);
+    pthread_create(&process1, nullptr, calculate_next_step, nullptr);
+    pthread_create(&process2, nullptr, determine_current_positions, nullptr);
 
     //allows time for buffer c to be filled to be checked by P3
     sleep(1);
+    pthread_barrier_wait(&timing_barrier);
 
-    //true=buffer_c
-    //false=buffer_d
+    //odd time=buffer_c
+    //even time=buffer_d
 	int time = 1;
-	//P3 will be for collision detection
+	//time_point start and finish are used to track how long P3 takes to run on each iteration
+    high_resolution_clock::time_point start, finish;
+    //P3 will be for collision detection
     while(true){
 		bool collision = false;
+		start = high_resolution_clock::now();
 		//the current time will determine which buffer to read from
 		if(time%2 != 0){
 			pthread_rwlock_rdlock(&lock_c);
@@ -253,7 +265,16 @@ int main() {
 			printf("No collision at time %d.\n", time);
 		}
 		time++;
-		sleep(1);
+        finish = high_resolution_clock::now();
+
+        //sleeps for (1 second) - (execution time)
+        timespec tim;
+        tim.tv_sec = 0;
+		tim.tv_nsec = 1000000000L - duration_cast<nanoseconds>(finish-start).count();
+		nanosleep(&tim, nullptr);
+
+		//barrier is used to ensure that each of the 3 processes are synchronized
+		pthread_barrier_wait(&timing_barrier);
     }
 
     pthread_join(process1, nullptr);
