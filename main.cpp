@@ -257,6 +257,17 @@ void *determine_current_positions(void *threadid){
     }
 }
 
+int*** detect_future_collision(int buffer[3][3]){
+    int*** future_positions = new int**[2];
+    for(int future_time = 0; future_time < 2; future_time++){
+        future_positions[future_time] = new int*[3];
+        for(int train = 0; train < 3; train++){
+            future_positions[future_time][train] = new int[2];
+        }
+    }
+    return future_positions;
+}
+
 //function for the third process which will act as the central command center
 void central_command_center(){
     //used for associating row number with train
