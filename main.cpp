@@ -2,6 +2,7 @@
 #include "unistd.h"
 #include <cstdio>
 #include <chrono>
+#include <semaphore.h>
 
 //compile with g++ main.cpp -lpthread
 
@@ -12,6 +13,7 @@ struct grid_buffer{
     bool buffer[8][7];
     int row;
     int col;
+    bool isMoving;
 };
 
 //enum created for readability
@@ -40,17 +42,39 @@ void *calculate_next_step(void *threadid) {
         if (which_buffer) {
             //buffer a will be read from
             pthread_rwlock_rdlock(&lock_a);
-            //x moves diagonally
-            int next_row_x = (buffer_a[X].row + 1) % 8;
-            int next_col_x = (buffer_a[X].col + 1) % 7;
 
-            //y moves vertically
-            int next_row_y = (buffer_a[Y].row + 1) % 8;
-			int next_col_y = 2;
+            //x moves diagonally if it is moving
+            int next_row_x, next_col_x;
+            if(buffer_a[X].isMoving) {
+                next_row_x = (buffer_a[X].row + 1) % 8;
+                next_col_x = (buffer_a[X].col + 1) % 7;
+            }
+            else{
+                next_row_x = buffer_a[X].row;
+                next_col_x = buffer_a[X].col;
+            }
 
-            //z moves horizontally
-			int next_row_z = 3;
-            int next_col_z = (buffer_a[Z].col + 1) % 7;
+            //y moves vertically if it is moving
+            int next_row_y, next_col_y;
+            if(buffer_a[Y].isMoving) {
+                next_row_y = (buffer_a[Y].row + 1) % 8;
+                next_col_y = 2;
+            }
+            else{
+                next_row_y = buffer_a[Y].row;
+                next_col_y = buffer_a[Y].col;
+            }
+
+            //z moves horizontally if it is moving
+            int next_row_z, next_col_z;
+            if(buffer_a[Z].isMoving) {
+                next_row_z = 3;
+                next_col_z = (buffer_a[Z].col + 1) % 7;
+            }
+            else{
+                next_row_z = buffer_a[Z].row;
+                next_col_z = buffer_a[Z].col;
+            }
             pthread_rwlock_unlock(&lock_a);
 
             //buffer b will be written to
@@ -182,6 +206,10 @@ void *determine_current_positions(void *threadid){
     }
 }
 
+bool check_for_collision(){
+
+}
+
 //main thread is process 3
 int main() {
     pthread_t process1;
@@ -198,14 +226,17 @@ int main() {
     buffer_a[X].buffer[0][0] = true;
     buffer_a[X].row = 0;
     buffer_a[X].col = 0;
+    buffer_a[X].isMoving = true;
 
     buffer_a[Y].buffer[0][2] = true;
     buffer_a[Y].row = 0;
     buffer_a[Y].col = 2;
+    buffer_a[Y].isMoving = true;
 
     buffer_a[Z].buffer[3][6] = true;
     buffer_a[Z].row = 3;
     buffer_a[Z].col = 6;
+    buffer_a[Z].isMoving = true;
 
     buffer_c[0][0] = 'X';
     buffer_c[1][0] = 'Y';
