@@ -2,7 +2,9 @@
 #include "unistd.h"
 #include <cstdio>
 #include <chrono>
+#include <vector>
 #include <semaphore.h>
+#include <cstring>
 
 //compile with g++ main.cpp -lpthread
 
@@ -261,54 +263,115 @@ void *determine_current_positions(void *threadid){
     }
 }
 
+void calculate_next_second(position_buffer* previous_second, position_buffer* next_second){
+    //calculate movement for x
+    int row_x = previous_second->buffer[0][0];
+    int col_x = previous_second->buffer[0][1];
+    if(previous_second->buffer[0][2] == 1){
+        row_x = calculate_next_row_position(row_x);
+        col_x = calculate_next_col_position(col_x);
+    }
+    next_second->buffer[0][0] = row_x;
+    next_second->buffer[0][1] = col_x;
+    next_second->buffer[0][2] = previous_second->buffer[0][2];
+
+    //calculate movement for y
+    int row_y = previous_second->buffer[1][0];
+    int col_y = previous_second->buffer[1][1];
+    if(previous_second->buffer[1][2] == 1)
+        row_y = calculate_next_col_position(row_y);
+    next_second->buffer[1][0] = row_y;
+    next_second->buffer[1][1] = col_y;
+    next_second->buffer[1][2] = previous_second->buffer[1][2];
+
+    //calculate movement for z
+    int row_z = previous_second->buffer[2][0];
+    int col_z = previous_second->buffer[2][1];
+    if(previous_second->buffer[2][2] == 1)
+        row_z = calculate_next_row_position(row_z);
+    next_second->buffer[2][0] = row_z;
+    next_second->buffer[2][1] = col_z;
+    next_second->buffer[2][2] = previous_second->buffer[2][2];
+}
+
 //this function will initialize future_positions to have values filled from [1, future_seconds). This will allow the command center loop to being filling positions at index 0
-void initialize_future_positions(position_buffer* current_position, position_buffer* future_positions, size_t future_seconds){
-    for(size_t current_time = 1; current_time < future_seconds; current_time++){
+void initialize_future_positions(position_buffer* current_position, position_buffer* future_positions, int future_seconds){
+    for(int current_time = 1; current_time < future_seconds; current_time++){
         position_buffer* previous_second;
         if(current_time == 1)
             previous_second = current_position;
         else
             previous_second = &future_positions[current_time - 1];
 
-        //calculate movement for x
-        int row_x = previous_second->buffer[0][0];
-        int col_x = previous_second->buffer[0][1];
-        if(previous_second->buffer[0][2] == 1){
-            row_x = calculate_next_row_position(row_x);
-            col_x = calculate_next_col_position(col_x);
-        }
-        future_positions[current_time].buffer[0][0] = row_x;
-        future_positions[current_time].buffer[0][1] = col_x;
-        future_positions[current_time].buffer[0][2] = previous_second->buffer[0][2];
-
-        //calculate movement for y
-        int row_y = previous_second->buffer[1][0];
-        int col_y = previous_second->buffer[1][1];
-        if(previous_second->buffer[1][2] == 1)
-            row_y = calculate_next_col_position(row_y);
-        future_positions[current_time].buffer[1][0] = row_y;
-        future_positions[current_time].buffer[1][1] = col_y;
-        future_positions[current_time].buffer[1][2] = previous_second->buffer[1][2];
-
-        //calculate movement for z
-        int row_z = previous_second->buffer[2][0];
-        int col_z = previous_second->buffer[2][1];
-        if(previous_second->buffer[2][2] == 1)
-            row_z = calculate_next_row_position(row_z);
-        future_positions[current_time].buffer[2][0] = row_z;
-        future_positions[current_time].buffer[2][1] = col_z;
-        future_positions[current_time].buffer[2][2] = previous_second->buffer[2][2];
+        calculate_next_second(previous_second, &future_positions[current_time]);
     }
 }
 
-int next_index(int time, size_t size){
-    return time % (int)size;
+bool is_collision(position_buffer* position){
+    for(int row = 0; row < 3; row++){
+        for(int compare_row = row+1; compare_row < 3; compare_row++){
+            if(position->buffer[row][1] == position->buffer[compare_row][1] && position->buffer[row][2] == position->buffer[compare_row][2]){
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
-int previous_index(int index, size_t size){
-    int previous = (index-1) % (int)size;
+void update_stopped_trains(position_buffer* current_positions, pthread_rwlock_t* current_lock, int look_ahead_seconds){
+    position_buffer* released_trains;
+    pthread_rwlock_rdlock(current_lock);
+    vector<int> stopped_trains;
+    //determines if any trains are currently stopped. If they are not, the current positions are returned
+    for(int train = 0; train < 3; train++){
+        if(current_positions->buffer[train][2] == 0){
+            stopped_trains.push_back(train);
+        }
+    }
+    pthread_rwlock_unlock(current_lock);
+    if(stopped_trains.empty()){
+        return;
+    }
+
+    for(auto it = stopped_trains.begin(); it != stopped_trains.end(); it++){
+        //copy values of the current position to a test buffer and free the stopped train
+        position_buffer test_buffer[look_ahead_seconds+1];
+        memcpy(&test_buffer[0].buffer, current_positions->buffer, 9);
+        test_buffer[0].buffer[*it][2] = 1;
+        bool collision = false;
+        for(int i = 1; i <= look_ahead_seconds; i++){
+            calculate_next_second(&test_buffer[i-1], &test_buffer[i]);
+            //if this path has a collision, this train cannot be freed
+            if(is_collision(&test_buffer[i])){
+                collision = true;
+                break;
+            }
+        }
+        if(!collision){
+            current_positions = &test_buffer[0];
+            return;
+        }
+    }
+
+/*    //future_positions will store the positions of all trains assuming all trains are freed
+    position_buffer* future_positions = new position_buffer[look_ahead_seconds+1];
+    future_positions[0] = *current_positions;
+    for(int i = 1; i <= look_ahead_seconds; i++){
+        calculate_next_second(&future_positions[i-1], &future_positions[i]);
+        if(is_collision((&future_positions[i]))){
+            return current_positions;
+        }
+    }*/
+}
+
+int get_next_index(int time, int size){
+    return time % size;
+}
+
+int get_previous_index(int index, int size){
+    int previous = (index-1) % size;
     if(previous < 0){
-        return (int)size-1;
+        return size-1;
     }
     return previous;
 }
@@ -322,7 +385,7 @@ void central_command_center(){
     int time = 1;
 
     //this is an array for storing the future positions of the trains. time % look_ahead_amount will give the current index of the future_positions buffer
-    size_t look_ahead_amount = 2;
+    int look_ahead_amount = 2;
     position_buffer* future_positions = new position_buffer[look_ahead_amount];
     pthread_rwlock_rdlock(&lock_c);
     initialize_future_positions(&buffer_c, future_positions, look_ahead_amount);
@@ -332,40 +395,29 @@ void central_command_center(){
     high_resolution_clock::time_point start, finish;
     //P3 will be for collision detection
     while(true){
-        bool collision = false;
         start = high_resolution_clock::now();
-        //the current time will determine which buffer to read from
-/*        if(time%2 != 0){
-            pthread_rwlock_rdlock(&lock_c);
-            //checks the buffer to see if any of the trains are at the same point
-            for(int row = 0; row < 3; row++){
-                for(int compare_row = row+1; compare_row < 3; compare_row++){
-                    if(buffer_c.buffer[row][0] == buffer_c.buffer[compare_row][0] && buffer_c.buffer[row][1] == buffer_c.buffer[compare_row][1]){
-                        collision = true;
-                        printf("Collision between %c and %c at second %d, location (%d,%d).\n", train_index[row], train_index[compare_row], time, buffer_c.buffer[row][0], buffer_c.buffer[row][1]);
-                        break;
-                    }
-                }
-            }
-            pthread_rwlock_unlock(&lock_c);
+
+        //determines what the current buffer and lock are
+        pthread_rwlock_t* current_lock;
+        position_buffer* current_buffer;
+        if(time%2 != 0){
+            current_lock = &lock_c;
+            current_buffer = &buffer_c;
         }
         else{
-            pthread_rwlock_rdlock(&lock_d);
-            //checks the buffer to see if any of the trains are at the same point
-            for(int row = 0; row < 3; row++){
-                for(int compare_row = row+1; compare_row < 3; compare_row++){
-                    if(buffer_d.buffer[row][0] == buffer_d.buffer[compare_row][0] && buffer_d.buffer[row][1] == buffer_d.buffer[compare_row][1]){
-                        collision = true;
-                        printf("Collision between %c and %c at second %d, location (%d,%d).\n", train_index[row], train_index[compare_row], time, buffer_d.buffer[row][0], buffer_d.buffer[row][1]);
-                        break;
-                    }
-                }
-            }
-            pthread_rwlock_unlock(&lock_d);
+            current_lock = &lock_d;
+            current_buffer = &buffer_d;
         }
-        if(!collision){
-            printf("No collision at time %d.\n", time);
-        }*/
+
+
+
+        //calculates the latest second and overrides the future_position that is now the current_second
+        int current_index = get_next_index(time, look_ahead_amount);
+        int previous_index = get_previous_index(current_index, look_ahead_amount);
+        calculate_next_second(&future_positions[previous_index], &future_positions[current_index]);
+
+
+
         time++;
         finish = high_resolution_clock::now();
 
