@@ -16,6 +16,10 @@ struct grid_buffer{
     bool is_moving;
 };
 
+struct position_buffer{
+    int buffer[3][3];
+};
+
 //enum created for readability
 enum train{
     X, Y, Z
@@ -25,8 +29,8 @@ grid_buffer buffer_a[3];
 grid_buffer buffer_b[3];
 
 //each row is for each of the three trains. The first 2 columns are for row and column position of that train. The last column is 1 if the train is moving, and 0 if the train is stopped
-int buffer_c[3][3];
-int buffer_d[3][3];
+position_buffer buffer_c;
+position_buffer buffer_d;
 
 pthread_rwlock_t lock_a;
 pthread_rwlock_t lock_b;
@@ -200,17 +204,17 @@ void *determine_current_positions(void *threadid){
             pthread_rwlock_wrlock(&lock_c);
 
             //updates the appropriate buffer with current train positions and their movement status
-            buffer_c[0][0] = current_row_x;
-            buffer_c[0][1] = current_col_x;
-            buffer_c[0][2] = is_moving_x;
+            buffer_c.buffer[0][0] = current_row_x;
+            buffer_c.buffer[0][1] = current_col_x;
+            buffer_c.buffer[0][2] = is_moving_x;
 
-            buffer_c[1][0] = current_row_y;
-            buffer_c[1][1] = current_col_y;
-            buffer_c[1][2] = is_moving_y;
+            buffer_c.buffer[1][0] = current_row_y;
+            buffer_c.buffer[1][1] = current_col_y;
+            buffer_c.buffer[1][2] = is_moving_y;
 
-            buffer_c[2][0] = current_row_z;
-            buffer_c[2][1] = current_col_z;
-            buffer_c[2][2] = is_moving_z;
+            buffer_c.buffer[2][0] = current_row_z;
+            buffer_c.buffer[2][1] = current_col_z;
+            buffer_c.buffer[2][2] = is_moving_z;
 
             pthread_rwlock_unlock(&lock_c);
         }
@@ -237,17 +241,17 @@ void *determine_current_positions(void *threadid){
             pthread_rwlock_wrlock(&lock_d);
 
             //updates the appropriate buffer with current train positions. Stored as a character
-            buffer_d[0][0] = current_row_x;
-            buffer_d[0][1] = current_col_x;
-            buffer_d[0][2] = is_moving_x;
+            buffer_d.buffer[0][0] = current_row_x;
+            buffer_d.buffer[0][1] = current_col_x;
+            buffer_d.buffer[0][2] = is_moving_x;
 
-            buffer_d[1][0] = current_row_y;
-            buffer_d[1][1] = current_col_y;
-            buffer_d[1][2] = is_moving_y;
+            buffer_d.buffer[1][0] = current_row_y;
+            buffer_d.buffer[1][1] = current_col_y;
+            buffer_d.buffer[1][2] = is_moving_y;
 
-            buffer_d[2][0] = current_row_z;
-            buffer_d[2][1] = current_col_z;
-            buffer_d[2][2] = is_moving_z;
+            buffer_d.buffer[2][0] = current_row_z;
+            buffer_d.buffer[2][1] = current_col_z;
+            buffer_d.buffer[2][2] = is_moving_z;
 
             pthread_rwlock_unlock(&lock_d);
         }
@@ -257,15 +261,56 @@ void *determine_current_positions(void *threadid){
     }
 }
 
-int*** detect_future_collision(int buffer[3][3]){
-    int*** future_positions = new int**[2];
-    for(int future_time = 0; future_time < 2; future_time++){
-        future_positions[future_time] = new int*[3];
-        for(int train = 0; train < 3; train++){
-            future_positions[future_time][train] = new int[2];
+//this function will initialize future_positions to have values filled from [1, future_seconds). This will allow the command center loop to being filling positions at index 0
+void initialize_future_positions(position_buffer* current_position, position_buffer* future_positions, size_t future_seconds){
+    for(size_t current_time = 1; current_time < future_seconds; current_time++){
+        position_buffer* previous_second;
+        if(current_time == 1)
+            previous_second = current_position;
+        else
+            previous_second = &future_positions[current_time - 1];
+
+        //calculate movement for x
+        int row_x = previous_second->buffer[0][0];
+        int col_x = previous_second->buffer[0][1];
+        if(previous_second->buffer[0][2] == 1){
+            row_x = calculate_next_row_position(row_x);
+            col_x = calculate_next_col_position(col_x);
         }
+        future_positions[current_time].buffer[0][0] = row_x;
+        future_positions[current_time].buffer[0][1] = col_x;
+        future_positions[current_time].buffer[0][2] = previous_second->buffer[0][2];
+
+        //calculate movement for y
+        int row_y = previous_second->buffer[1][0];
+        int col_y = previous_second->buffer[1][1];
+        if(previous_second->buffer[1][2] == 1)
+            row_y = calculate_next_col_position(row_y);
+        future_positions[current_time].buffer[1][0] = row_y;
+        future_positions[current_time].buffer[1][1] = col_y;
+        future_positions[current_time].buffer[1][2] = previous_second->buffer[1][2];
+
+        //calculate movement for z
+        int row_z = previous_second->buffer[2][0];
+        int col_z = previous_second->buffer[2][1];
+        if(previous_second->buffer[2][2] == 1)
+            row_z = calculate_next_row_position(row_z);
+        future_positions[current_time].buffer[2][0] = row_z;
+        future_positions[current_time].buffer[2][1] = col_z;
+        future_positions[current_time].buffer[2][2] = previous_second->buffer[2][2];
     }
-    return future_positions;
+}
+
+int next_index(int time, size_t size){
+    return time % (int)size;
+}
+
+int previous_index(int index, size_t size){
+    int previous = (index-1) % (int)size;
+    if(previous < 0){
+        return (int)size-1;
+    }
+    return previous;
 }
 
 //function for the third process which will act as the central command center
@@ -273,9 +318,16 @@ void central_command_center(){
     //used for associating row number with train
     char train_index[] = {'X', 'Y', 'Z'};
 
-    //odd time=buffer_c
-    //even time=buffer_d
+    //odd time=buffer_c, even time=buffer_d
     int time = 1;
+
+    //this is an array for storing the future positions of the trains. time % look_ahead_amount will give the current index of the future_positions buffer
+    size_t look_ahead_amount = 2;
+    position_buffer* future_positions = new position_buffer[look_ahead_amount];
+    pthread_rwlock_rdlock(&lock_c);
+    initialize_future_positions(&buffer_c, future_positions, look_ahead_amount);
+    pthread_rwlock_unlock(&lock_c);
+
     //time_point start and finish are used to track how long P3 takes to run on each iteration
     high_resolution_clock::time_point start, finish;
     //P3 will be for collision detection
@@ -283,14 +335,14 @@ void central_command_center(){
         bool collision = false;
         start = high_resolution_clock::now();
         //the current time will determine which buffer to read from
-        if(time%2 != 0){
+/*        if(time%2 != 0){
             pthread_rwlock_rdlock(&lock_c);
             //checks the buffer to see if any of the trains are at the same point
             for(int row = 0; row < 3; row++){
                 for(int compare_row = row+1; compare_row < 3; compare_row++){
-                    if(buffer_c[row][0] == buffer_c[compare_row][0] && buffer_c[row][1] == buffer_c[compare_row][1]){
+                    if(buffer_c.buffer[row][0] == buffer_c.buffer[compare_row][0] && buffer_c.buffer[row][1] == buffer_c.buffer[compare_row][1]){
                         collision = true;
-                        printf("Collision between %c and %c at second %d, location (%d,%d).\n", train_index[row], train_index[compare_row], time, buffer_c[row][0], buffer_c[row][1]);
+                        printf("Collision between %c and %c at second %d, location (%d,%d).\n", train_index[row], train_index[compare_row], time, buffer_c.buffer[row][0], buffer_c.buffer[row][1]);
                         break;
                     }
                 }
@@ -302,9 +354,9 @@ void central_command_center(){
             //checks the buffer to see if any of the trains are at the same point
             for(int row = 0; row < 3; row++){
                 for(int compare_row = row+1; compare_row < 3; compare_row++){
-                    if(buffer_d[row][0] == buffer_d[compare_row][0] && buffer_d[row][1] == buffer_d[compare_row][1]){
+                    if(buffer_d.buffer[row][0] == buffer_d.buffer[compare_row][0] && buffer_d.buffer[row][1] == buffer_d.buffer[compare_row][1]){
                         collision = true;
-                        printf("Collision between %c and %c at second %d, location (%d,%d).\n", train_index[row], train_index[compare_row], time, buffer_d[row][0], buffer_d[row][1]);
+                        printf("Collision between %c and %c at second %d, location (%d,%d).\n", train_index[row], train_index[compare_row], time, buffer_d.buffer[row][0], buffer_d.buffer[row][1]);
                         break;
                     }
                 }
@@ -313,7 +365,7 @@ void central_command_center(){
         }
         if(!collision){
             printf("No collision at time %d.\n", time);
-        }
+        }*/
         time++;
         finish = high_resolution_clock::now();
 
