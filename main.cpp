@@ -72,6 +72,8 @@ void *calculate_next_step(void *threadid) {
             //buffer a will be read from
             pthread_rwlock_rdlock(&lock_a);
 
+            //print_buffer(buffer_a);
+
             //x moves diagonally if it is moving
             int next_row_x, next_col_x;
             if(buffer_a[X].is_moving) {
@@ -133,6 +135,8 @@ void *calculate_next_step(void *threadid) {
         else {
             //buffer b will be read from
             pthread_rwlock_rdlock(&lock_b);
+
+            //print_buffer(buffer_b);
 
             //x moves diagonally
             int next_row_x = calculate_next_row_position(buffer_b[X].row);
@@ -263,6 +267,18 @@ void *determine_current_positions(void *threadid){
     }
 }
 
+int get_next_index(int time, int size){
+    return time % size;
+}
+
+int get_previous_index(int index, int size){
+    int previous = (index-1) % size;
+    if(previous < 0){
+        return size-1;
+    }
+    return previous;
+}
+
 void calculate_next_second(position_buffer* previous_second, position_buffer* next_second){
     //calculate movement for x
     int row_x = previous_second->buffer[0][0];
@@ -294,9 +310,19 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* ne
     next_second->buffer[2][2] = previous_second->buffer[2][2];
 }
 
-//this function will initialize future_positions to have values filled from [1, future_seconds). This will allow the command center loop to being filling positions at index 0
-void initialize_future_positions(position_buffer* current_position, position_buffer* future_positions, int future_seconds){
-    for(int current_time = 1; current_time < future_seconds; current_time++){
+//this function initializes all positions of future_positions other than the position that will be written to on time time_zero. This allows the command center loop to fill indices starting at get_next_index(time_zero, future_seconds)
+void initialize_future_positions(position_buffer* current_position, position_buffer* future_positions, int future_seconds, int time_zero){
+    int initial_index = (get_next_index(time_zero, future_seconds) + 1) % future_seconds;
+    for(int current_time = initial_index; current_time != time_zero; current_time = get_next_index(current_time++, future_seconds)){
+        position_buffer* previous_second;
+        if(current_time == initial_index)
+            previous_second = current_position;
+        else
+            previous_second = &future_positions[get_previous_index(current_time, future_seconds)];
+
+        calculate_next_second(previous_second, &future_positions[current_time]);
+    }
+/*    for(int current_time = 1; current_time < future_seconds; current_time++){
         position_buffer* previous_second;
         if(current_time == 1)
             previous_second = current_position;
@@ -304,13 +330,56 @@ void initialize_future_positions(position_buffer* current_position, position_buf
             previous_second = &future_positions[current_time - 1];
 
         calculate_next_second(previous_second, &future_positions[current_time]);
-    }
+    }*/
 }
 
-bool is_collision(position_buffer* position){
+void get_trains_that_collide(position_buffer* position, vector<int>* colliding_trains){
     for(int row = 0; row < 3; row++){
         for(int compare_row = row+1; compare_row < 3; compare_row++){
             if(position->buffer[row][1] == position->buffer[compare_row][1] && position->buffer[row][2] == position->buffer[compare_row][2]){
+                colliding_trains->push_back(row);
+            }
+        }
+    }
+}
+
+//checks if there is a collision involving the train train_num
+bool is_collision(position_buffer* position, int train_num){
+    for(int compare_row = 0; compare_row < 3; compare_row++){
+        if(compare_row != train_num && position->buffer[train_num][1] == position->buffer[compare_row][1] && position->buffer[train_num][2] == position->buffer[compare_row][2]){
+            return true;
+        }
+    }
+    return false;
+}
+
+//returns true if the train has been freed. Otherwise, returns false
+bool free_train(position_buffer* current_positions, int train_num, int look_ahead_seconds){
+    //will store the future positions of the trains if the train train_num begins moving
+    position_buffer test_buffer[look_ahead_seconds];
+    //sets the train train_num to move
+    current_positions->buffer[train_num][2] = 1;
+    for(int i = 0; i < look_ahead_seconds; i++){
+        if(i == 0)
+            calculate_next_second(current_positions, &test_buffer[i]);
+        else
+            calculate_next_second(&test_buffer[i-1], &test_buffer[i]);
+        //if this path has a collision involving train_num, this train cannot be freed
+        if(is_collision(&test_buffer[i], train_num)){
+            //if the trains collide, the train train_num cannot start moving
+            current_positions->buffer[train_num][2] = 0;
+            return false;
+        }
+    }
+    return true;
+}
+
+//this method will update the current_positions buffer to resume movement of trains that no longer need to be stopped. Returns true if current_positions is modified.
+bool update_stopped_trains(position_buffer* current_positions, int look_ahead_seconds){
+    //determines if any trains are currently stopped. If they are not, the current positions are returned
+    for(int train = 0; train < 3; train++){
+        if(current_positions->buffer[train][2] == 0){
+            if(free_train(current_positions, train, look_ahead_seconds)){
                 return true;
             }
         }
@@ -318,62 +387,15 @@ bool is_collision(position_buffer* position){
     return false;
 }
 
-void update_stopped_trains(position_buffer* current_positions, pthread_rwlock_t* current_lock, int look_ahead_seconds){
-    position_buffer* released_trains;
-    pthread_rwlock_rdlock(current_lock);
-    vector<int> stopped_trains;
-    //determines if any trains are currently stopped. If they are not, the current positions are returned
-    for(int train = 0; train < 3; train++){
-        if(current_positions->buffer[train][2] == 0){
-            stopped_trains.push_back(train);
-        }
-    }
-    pthread_rwlock_unlock(current_lock);
-    if(stopped_trains.empty()){
-        return;
-    }
-
-    for(auto it = stopped_trains.begin(); it != stopped_trains.end(); it++){
-        //copy values of the current position to a test buffer and free the stopped train
-        position_buffer test_buffer[look_ahead_seconds+1];
-        memcpy(&test_buffer[0].buffer, current_positions->buffer, 9);
-        test_buffer[0].buffer[*it][2] = 1;
-        bool collision = false;
-        for(int i = 1; i <= look_ahead_seconds; i++){
-            calculate_next_second(&test_buffer[i-1], &test_buffer[i]);
-            //if this path has a collision, this train cannot be freed
-            if(is_collision(&test_buffer[i])){
-                collision = true;
-                break;
+bool train_interfere(position_buffer* future_positions, int look_ahead_seconds, int train_num, int stopped_row, int stopped_col){
+    for(int i = 0; i < look_ahead_seconds; i++){
+        for(int train = 0; train < 3; train++){
+            if(train != train_num && future_positions[i].buffer[train][0] == stopped_row && future_positions[i].buffer[train][1] == stopped_col){
+                return true;
             }
         }
-        if(!collision){
-            current_positions = &test_buffer[0];
-            return;
-        }
     }
-
-/*    //future_positions will store the positions of all trains assuming all trains are freed
-    position_buffer* future_positions = new position_buffer[look_ahead_seconds+1];
-    future_positions[0] = *current_positions;
-    for(int i = 1; i <= look_ahead_seconds; i++){
-        calculate_next_second(&future_positions[i-1], &future_positions[i]);
-        if(is_collision((&future_positions[i]))){
-            return current_positions;
-        }
-    }*/
-}
-
-int get_next_index(int time, int size){
-    return time % size;
-}
-
-int get_previous_index(int index, int size){
-    int previous = (index-1) % size;
-    if(previous < 0){
-        return size-1;
-    }
-    return previous;
+    return false;
 }
 
 //function for the third process which will act as the central command center
@@ -388,7 +410,7 @@ void central_command_center(){
     int look_ahead_amount = 2;
     position_buffer* future_positions = new position_buffer[look_ahead_amount];
     pthread_rwlock_rdlock(&lock_c);
-    initialize_future_positions(&buffer_c, future_positions, look_ahead_amount);
+    initialize_future_positions(&buffer_c, future_positions, look_ahead_amount, 0);
     pthread_rwlock_unlock(&lock_c);
 
     //time_point start and finish are used to track how long P3 takes to run on each iteration
@@ -398,25 +420,71 @@ void central_command_center(){
         start = high_resolution_clock::now();
 
         //determines what the current buffer and lock are
-        pthread_rwlock_t* current_lock;
         position_buffer* current_buffer;
+        pthread_rwlock_t* current_lock;
+        grid_buffer* current_grid;
+        pthread_rwlock_t* grid_lock;
         if(time%2 != 0){
-            current_lock = &lock_c;
             current_buffer = &buffer_c;
+            current_lock = &lock_c;
+            current_grid = buffer_a;
+            grid_lock = &lock_a;
         }
         else{
-            current_lock = &lock_d;
             current_buffer = &buffer_d;
+            current_lock = &lock_d;
+            current_grid = buffer_b;
+            grid_lock = &lock_b;
         }
 
+        pthread_rwlock_wrlock(current_lock);
+        bool train_updated = update_stopped_trains(current_buffer, look_ahead_amount);
+        pthread_rwlock_unlock(current_lock);
 
+        if(train_updated){
+            pthread_rwlock_rdlock(current_lock);
+            initialize_future_positions(current_buffer, future_positions, look_ahead_amount, time);
+            pthread_rwlock_unlock(current_lock);
+        }
 
         //calculates the latest second and overrides the future_position that is now the current_second
         int current_index = get_next_index(time, look_ahead_amount);
         int previous_index = get_previous_index(current_index, look_ahead_amount);
         calculate_next_second(&future_positions[previous_index], &future_positions[current_index]);
 
+        vector<int> collisions;
+        get_trains_that_collide(&future_positions[current_index], &collisions);
+        printf("%d\n", collisions.size());
+        //TODO: change this to stop 2 random trains
+        if(collisions.size() == 3){
+            pthread_rwlock_wrlock(current_lock);
+            current_buffer->buffer[collisions[0]][2] = 0;
+            current_buffer->buffer[collisions[1]][2] = 0;
+            pthread_rwlock_unlock(current_lock);
+        }
+        //TODO: change train_to_stop to a random train in collisions vector
+        else if(collisions.size() == 2){
+            int train_to_stop = collisions[0];
+            pthread_rwlock_wrlock(current_lock);
+            if(!train_interfere(future_positions, look_ahead_amount, train_to_stop, current_buffer->buffer[train_to_stop][0], current_buffer->buffer[train_to_stop][1])){
+                current_buffer->buffer[train_to_stop][2] = 0;
+            }
+            else{
+                current_buffer->buffer[collisions[1]][2] = 0;
+            }
+            pthread_rwlock_unlock(current_lock);
+        }
 
+        //update either buffer a or b with new is_moving values
+        pthread_rwlock_wrlock(grid_lock);
+        pthread_rwlock_rdlock(current_lock);
+
+        for(int i = 0; i < 3; i++){
+            current_grid[i].is_moving = current_buffer->buffer[i][2] == 1;
+        }
+
+        pthread_rwlock_unlock(current_lock);
+        pthread_rwlock_unlock(grid_lock);
 
         time++;
         finish = high_resolution_clock::now();
