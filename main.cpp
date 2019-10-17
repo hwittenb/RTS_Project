@@ -268,7 +268,7 @@ void *determine_current_positions(void *threadid){
 }
 
 int get_next_index(int time, int size){
-    return time % size;
+    return (time-1) % size;
 }
 
 int get_previous_index(int index, int size){
@@ -279,7 +279,7 @@ int get_previous_index(int index, int size){
     return previous;
 }
 
-void calculate_next_second(position_buffer* previous_second, position_buffer* next_second){
+void calculate_next_second(position_buffer* previous_second, position_buffer* current_second){
     //calculate movement for x
     int row_x = previous_second->buffer[0][0];
     int col_x = previous_second->buffer[0][1];
@@ -287,33 +287,35 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* ne
         row_x = calculate_next_row_position(row_x);
         col_x = calculate_next_col_position(col_x);
     }
-    next_second->buffer[0][0] = row_x;
-    next_second->buffer[0][1] = col_x;
-    next_second->buffer[0][2] = previous_second->buffer[0][2];
+    current_second->buffer[0][0] = row_x;
+    current_second->buffer[0][1] = col_x;
+    current_second->buffer[0][2] = previous_second->buffer[0][2];
 
     //calculate movement for y
     int row_y = previous_second->buffer[1][0];
     int col_y = previous_second->buffer[1][1];
     if(previous_second->buffer[1][2] == 1)
         row_y = calculate_next_col_position(row_y);
-    next_second->buffer[1][0] = row_y;
-    next_second->buffer[1][1] = col_y;
-    next_second->buffer[1][2] = previous_second->buffer[1][2];
+    current_second->buffer[1][0] = row_y;
+    current_second->buffer[1][1] = col_y;
+    current_second->buffer[1][2] = previous_second->buffer[1][2];
 
     //calculate movement for z
     int row_z = previous_second->buffer[2][0];
     int col_z = previous_second->buffer[2][1];
     if(previous_second->buffer[2][2] == 1)
-        row_z = calculate_next_row_position(row_z);
-    next_second->buffer[2][0] = row_z;
-    next_second->buffer[2][1] = col_z;
-    next_second->buffer[2][2] = previous_second->buffer[2][2];
+        col_z = calculate_next_col_position(col_z);
+    current_second->buffer[2][0] = row_z;
+    current_second->buffer[2][1] = col_z;
+    current_second->buffer[2][2] = previous_second->buffer[2][2];
 }
 
 //this function initializes all positions of future_positions other than the position that will be written to on time time_zero. This allows the command center loop to fill indices starting at get_next_index(time_zero, future_seconds)
 void initialize_future_positions(position_buffer* current_position, position_buffer* future_positions, int future_seconds, int time_zero){
-    int initial_index = (get_next_index(time_zero, future_seconds) + 1) % future_seconds;
-    for(int current_time = initial_index; current_time != time_zero; current_time = get_next_index(current_time++, future_seconds)){
+    int initial_index = get_next_index(time_zero+1, future_seconds);
+    int final_index = get_previous_index(initial_index, future_seconds);
+    //for(int current_time = initial_index; current_time != get_next_index(time_zero, future_seconds); current_time = (get_next_index(current_time++, future_seconds) + 1) % future_seconds){
+    for(int current_time = initial_index; current_time != final_index; current_time = (get_next_index(current_time+2, future_seconds))){
         position_buffer* previous_second;
         if(current_time == initial_index)
             previous_second = current_position;
@@ -335,8 +337,8 @@ void initialize_future_positions(position_buffer* current_position, position_buf
 
 void get_trains_that_collide(position_buffer* position, vector<int>* colliding_trains){
     for(int row = 0; row < 3; row++){
-        for(int compare_row = row+1; compare_row < 3; compare_row++){
-            if(position->buffer[row][1] == position->buffer[compare_row][1] && position->buffer[row][2] == position->buffer[compare_row][2]){
+        for(int compare_row = 0; compare_row < 3; compare_row++){
+            if(row != compare_row && position->buffer[row][1] == position->buffer[compare_row][1] && position->buffer[row][2] == position->buffer[compare_row][2]){
                 colliding_trains->push_back(row);
             }
         }
@@ -410,7 +412,7 @@ void central_command_center(){
     int look_ahead_amount = 2;
     position_buffer* future_positions = new position_buffer[look_ahead_amount];
     pthread_rwlock_rdlock(&lock_c);
-    initialize_future_positions(&buffer_c, future_positions, look_ahead_amount, 0);
+    initialize_future_positions(&buffer_c, future_positions, look_ahead_amount, time);
     pthread_rwlock_unlock(&lock_c);
 
     //time_point start and finish are used to track how long P3 takes to run on each iteration
