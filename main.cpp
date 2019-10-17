@@ -43,6 +43,8 @@ pthread_rwlock_t lock_c;
 pthread_rwlock_t lock_d;
 
 sem_t buffer_updated_sem;
+sem_t process_1_sem;
+sem_t process_3_sem;
 
 pthread_barrier_t timing_barrier;
 
@@ -73,7 +75,7 @@ void *calculate_next_step(void *threadid) {
     //false=buffer_b
     bool which_buffer = true;
     while (true) {
-        sem_wait(&buffer_updated_sem);
+        sem_wait(&process_1_sem);
         if (which_buffer) {
             //buffer a will be read from
             pthread_rwlock_rdlock(&lock_a);
@@ -210,7 +212,6 @@ void *determine_current_positions(void *threadid){
     //false=buffer_b and buffer_d
     bool which_buffer = true;
     while(true){
-        sem_wait(&buffer_updated_sem);
         if(which_buffer){
             //buffer_a will be read from
             pthread_rwlock_rdlock(&lock_a);
@@ -286,6 +287,8 @@ void *determine_current_positions(void *threadid){
             pthread_rwlock_unlock(&lock_d);
         }
         which_buffer = !which_buffer;
+        //allows process_3 to begin running
+        sem_post(&process_3_sem);
         //waits for each of the other threads to finish execution
         pthread_barrier_wait(&timing_barrier);
     }
@@ -415,30 +418,41 @@ void central_command_center(){
     while(true){
         start = high_resolution_clock::now();
 
+        sem_wait(&process_3_sem);
+
         //determines what the current buffer and lock are
         position_buffer* current_position_buffer;
         pthread_rwlock_t* current_position_lock;
-        position_buffer* next_position_buffer;
-        pthread_rwlock_t* next_position_lock;
+
         //the current grid is updated when it is determined if any of the trains need to stop before movement is continued
         grid_buffer* current_grid;
         pthread_rwlock_t* grid_lock;
         if(time%2 != 0){
             current_position_buffer = &buffer_c;
             current_position_lock = &lock_c;
-            next_position_buffer = &buffer_d;
-            next_position_lock = &lock_d;
-            current_grid = buffer_b;
-            grid_lock = &lock_b;
+            current_grid = buffer_a;
+            grid_lock = &lock_a;
         }
         else{
             current_position_buffer = &buffer_d;
             current_position_lock = &lock_d;
-            next_position_buffer = &buffer_c;
-            next_position_lock = &lock_c;
-            current_grid = buffer_a;
-            grid_lock = &lock_a;
+            current_grid = buffer_b;
+            grid_lock = &lock_b;
         }
+
+        if(time == 248){
+            printf("here;");
+        }
+
+        pthread_rwlock_rdlock(current_position_lock);
+        for(int i = 0; i < 3; i++){
+            if(is_collision(current_position_buffer, i)){
+                printf("%d\n", i);
+                printf("THERE IS A COLLISION WITH TRAIN %d at time %d\n", i, time);
+            }
+            assert(!is_collision(current_position_buffer, i));
+        }
+        pthread_rwlock_unlock(current_position_lock);
 
         pthread_rwlock_wrlock(current_position_lock);
         update_stopped_trains(current_position_buffer, look_ahead_amount, time);
@@ -486,18 +500,15 @@ void central_command_center(){
 
         //update either buffer a or b with new is_moving values
         pthread_rwlock_wrlock(grid_lock);
-        pthread_rwlock_wrlock(next_position_lock);
         pthread_rwlock_rdlock(current_position_lock);
 
         //this will be updating the buffer that is currently being used to calculate the positions of the next time. That way the trains will be able to stop before a collision.
         for(int i = 0; i < 3; i++){
             num_trains_moving += current_position_buffer->buffer[i][2];
             current_grid[i].is_moving = current_position_buffer->buffer[i][2] == 1;
-            next_position_buffer->buffer[i][2] = current_position_buffer->buffer[i][2];
         }
 
         pthread_rwlock_unlock(current_position_lock);
-        pthread_rwlock_unlock(next_position_lock);
         pthread_rwlock_unlock(grid_lock);
 
         sem_post(&buffer_updated_sem);
@@ -506,13 +517,17 @@ void central_command_center(){
         printf("Time %d: %d trains are moving.\n", time, num_trains_moving);
 
         time++;
+
+        //allows process_1 to begin execution
+        sem_post(&process_1_sem);
+
         finish = high_resolution_clock::now();
 
         //sleeps for (1 second) - (execution time)
         timespec tim;
         tim.tv_sec = 0;
         tim.tv_nsec = 1000000000L - duration_cast<nanoseconds>(finish-start).count();
-        nanosleep(&tim, nullptr);
+        //nanosleep(&tim, nullptr);
 
         //barrier is used to ensure that each of the 3 processes are synchronized
         pthread_barrier_wait(&timing_barrier);
@@ -530,6 +545,8 @@ int main() {
     pthread_rwlock_init(&lock_d, nullptr);
 
     sem_init(&buffer_updated_sem, 3, 2);
+    sem_init(&process_1_sem, 2, 0);
+    sem_init(&process_3_sem, 2, 0);
 
     pthread_barrier_init(&timing_barrier, nullptr, 3);
 
@@ -552,10 +569,6 @@ int main() {
     //creates the two additional threads
     pthread_create(&process1, nullptr, calculate_next_step, nullptr);
     pthread_create(&process2, nullptr, determine_current_positions, nullptr);
-
-    //allows time for buffer c to be filled to be checked by P3
-    sleep(1);
-    pthread_barrier_wait(&timing_barrier);
 
     //main thread begins acting as the central command center
     central_command_center();
