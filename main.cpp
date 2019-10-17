@@ -416,77 +416,66 @@ void central_command_center(){
         start = high_resolution_clock::now();
 
         //determines what the current buffer and lock are
-        position_buffer* current_buffer;
-        pthread_rwlock_t* current_lock;
-        position_buffer* next_buffer;
-        pthread_rwlock_t* next_lock;
+        position_buffer* current_position_buffer;
+        pthread_rwlock_t* current_position_lock;
+        position_buffer* next_position_buffer;
+        pthread_rwlock_t* next_position_lock;
+        //the current grid is updated when it is determined if any of the trains need to stop before movement is continued
         grid_buffer* current_grid;
         pthread_rwlock_t* grid_lock;
         if(time%2 != 0){
-            current_buffer = &buffer_c;
-            current_lock = &lock_c;
-            next_buffer = &buffer_d;
-            next_lock = &lock_d;
+            current_position_buffer = &buffer_c;
+            current_position_lock = &lock_c;
+            next_position_buffer = &buffer_d;
+            next_position_lock = &lock_d;
             current_grid = buffer_b;
             grid_lock = &lock_b;
         }
         else{
-            current_buffer = &buffer_d;
-            current_lock = &lock_d;
-            next_buffer = &buffer_c;
-            next_lock = &lock_c;
+            current_position_buffer = &buffer_d;
+            current_position_lock = &lock_d;
+            next_position_buffer = &buffer_c;
+            next_position_lock = &lock_c;
             current_grid = buffer_a;
             grid_lock = &lock_a;
         }
 
-        pthread_rwlock_rdlock(current_lock);
-        for(int i = 0; i < 3; i++){
-            if(is_collision(current_buffer, i)){
-                printf("THERE IS A COLLISION WITH TRAIN %d at time %d\n", i, time);
-            }
-            assert(!is_collision(current_buffer, i));
-        }
-        pthread_rwlock_unlock(current_lock);
-
-        pthread_rwlock_wrlock(current_lock);
-        bool train_updated = update_stopped_trains(current_buffer, look_ahead_amount, time);
-        pthread_rwlock_unlock(current_lock);
+        pthread_rwlock_wrlock(current_position_lock);
+        update_stopped_trains(current_position_buffer, look_ahead_amount, time);
+        pthread_rwlock_unlock(current_position_lock);
 
         position_buffer* future_positions = new position_buffer[look_ahead_amount];
-        pthread_rwlock_rdlock(current_lock);
-        initialize_future_positions(current_buffer, future_positions, look_ahead_amount);
-        pthread_rwlock_unlock(current_lock);
+        pthread_rwlock_rdlock(current_position_lock);
+        initialize_future_positions(current_position_buffer, future_positions, look_ahead_amount);
+        pthread_rwlock_unlock(current_position_lock);
 
         set<int> collisions;
         for(int collision_check_time = 0; collision_check_time < look_ahead_amount; collision_check_time++) {
             //get_trains_that_collide(&future_positions[current_index], &collisions);
             get_trains_that_collide(&future_positions[collision_check_time], &collisions);
-            //TODO: change this to stop 2 random trains
             if (collisions.size() == 3) {
-                pthread_rwlock_wrlock(current_lock);
+                pthread_rwlock_wrlock(current_position_lock);
                 int train_one = *collisions.begin();
                 int train_two = *(++collisions.begin());
-                current_buffer->buffer[train_one][2] = 0;
-                current_buffer->buffer[train_two][2] = 0;
-                pthread_rwlock_unlock(current_lock);
-                printf("The trains X, Y, and Z were set to collide, so trains %c and %c have stopped at time %d.\n",
-                       train_index[train_one], train_index[train_two], time);
+                current_position_buffer->buffer[train_one][2] = 0;
+                current_position_buffer->buffer[train_two][2] = 0;
+                pthread_rwlock_unlock(current_position_lock);
+                printf("The trains X, Y, and Z were set to collide, so trains %c and %c have stopped at time %d.\n", train_index[train_one], train_index[train_two], time);
                 break;
             }
-                //TODO: change train_to_stop to a random train in collisions vector
             else if (collisions.size() == 2) {
                 int train_one = *collisions.begin();
                 int train_two = *(++collisions.begin());
                 int train_to_stop = train_one;
-                pthread_rwlock_wrlock(current_lock);
-                if (!train_interfere(future_positions, look_ahead_amount, train_one,
-                                     current_buffer->buffer[train_one][0], current_buffer->buffer[train_one][1])) {
-                    current_buffer->buffer[train_one][2] = 0;
-                } else {
-                    train_to_stop = train_two;
-                    current_buffer->buffer[train_two][2] = 0;
+                pthread_rwlock_wrlock(current_position_lock);
+                if (!train_interfere(future_positions, look_ahead_amount, train_one, current_position_buffer->buffer[train_one][0], current_position_buffer->buffer[train_one][1])) {
+                    current_position_buffer->buffer[train_one][2] = 0;
                 }
-                pthread_rwlock_unlock(current_lock);
+                else {
+                    train_to_stop = train_two;
+                    current_position_buffer->buffer[train_two][2] = 0;
+                }
+                pthread_rwlock_unlock(current_position_lock);
                 printf("The trains %c and %c were set to collide, so train %c was stopped at time %d.\n",
                        train_index[train_one], train_index[train_two], train_index[train_to_stop], time);
                 break;
@@ -497,24 +486,24 @@ void central_command_center(){
 
         //update either buffer a or b with new is_moving values
         pthread_rwlock_wrlock(grid_lock);
-        pthread_rwlock_wrlock(next_lock);
-        pthread_rwlock_rdlock(current_lock);
+        pthread_rwlock_wrlock(next_position_lock);
+        pthread_rwlock_rdlock(current_position_lock);
 
         //this will be updating the buffer that is currently being used to calculate the positions of the next time. That way the trains will be able to stop before a collision.
         for(int i = 0; i < 3; i++){
-            num_trains_moving += current_buffer->buffer[i][2];
-            current_grid[i].is_moving = current_buffer->buffer[i][2] == 1;
-            next_buffer->buffer[i][2] = current_buffer->buffer[i][2];
+            num_trains_moving += current_position_buffer->buffer[i][2];
+            current_grid[i].is_moving = current_position_buffer->buffer[i][2] == 1;
+            next_position_buffer->buffer[i][2] = current_position_buffer->buffer[i][2];
         }
 
-        pthread_rwlock_unlock(current_lock);
-        pthread_rwlock_unlock(next_lock);
+        pthread_rwlock_unlock(current_position_lock);
+        pthread_rwlock_unlock(next_position_lock);
         pthread_rwlock_unlock(grid_lock);
 
         sem_post(&buffer_updated_sem);
         sem_post(&buffer_updated_sem);
 
-        printf("At time %d, %d trains are moving.\n", time, num_trains_moving);
+        printf("Time %d: %d trains are moving.\n", time, num_trains_moving);
 
         time++;
         finish = high_resolution_clock::now();
