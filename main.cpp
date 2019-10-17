@@ -74,130 +74,82 @@ void *calculate_next_step(void *threadid) {
     bool which_buffer = true;
     while (true) {
         sem_wait(&buffer_updated_sem);
-        if (which_buffer) {
-            //buffer a will be read from
-            pthread_rwlock_rdlock(&lock_a);
-
-            //x moves diagonally if it is moving
-            int next_row_x, next_col_x;
-            if(buffer_a[X].is_moving) {
-                next_row_x = calculate_next_row_position(buffer_a[X].row);
-                next_col_x = calculate_next_col_position(buffer_a[X].col);
-            }
-            else{
-                next_row_x = buffer_a[X].row;
-                next_col_x = buffer_a[X].col;
-            }
-
-            //y moves vertically if it is moving
-            int next_row_y, next_col_y;
-            if(buffer_a[Y].is_moving) {
-                next_row_y = calculate_next_row_position(buffer_a[Y].row);
-                next_col_y = 2;
-            }
-            else{
-                next_row_y = buffer_a[Y].row;
-                next_col_y = buffer_a[Y].col;
-            }
-
-            //z moves horizontally if it is moving
-            int next_row_z, next_col_z;
-            if(buffer_a[Z].is_moving) {
-                next_row_z = 3;
-                next_col_z = calculate_next_col_position(buffer_a[Z].col);
-            }
-            else{
-                next_row_z = buffer_a[Z].row;
-                next_col_z = buffer_a[Z].col;
-            }
-
-            pthread_rwlock_unlock(&lock_a);
-
-            //buffer b will be written to
-            pthread_rwlock_wrlock(&lock_b);
-
-            //saves the next position of train X in buffer b
-            buffer_b[X].buffer[buffer_b[X].row][buffer_b[X].col] = false;
-            buffer_b[X].buffer[next_row_x][next_col_x] = true;
-            buffer_b[X].row = next_row_x;
-            buffer_b[X].col = next_col_x;
-
-            //saves the next position of train Y in buffer b
-            buffer_b[Y].buffer[buffer_b[Y].row][buffer_b[Y].col] = false;
-            buffer_b[Y].buffer[next_row_y][next_col_y] = true;
-            buffer_b[Y].row = next_row_y;
-			buffer_b[Y].col = next_col_y;
-
-            //saves the next position of train Z in buffer b
-            buffer_b[Z].buffer[buffer_b[Z].row][buffer_b[Z].col] = false;
-            buffer_b[Z].buffer[next_row_z][next_col_z] = true;
-			buffer_b[Z].row = next_row_z;
-            buffer_b[Z].col = next_col_z;
-
-            pthread_rwlock_unlock(&lock_b);
+        
+        //determines the current buffer (either A or B) and the next buffer (either A or B) based off the bool which_buffer
+        grid_buffer* current_grid_buffer;
+        pthread_rwlock_t* current_grid_lock;
+        grid_buffer* next_grid_buffer;
+        pthread_rwlock_t* next_grid_lock;
+        if(which_buffer){
+            current_grid_buffer = buffer_a;
+            current_grid_lock = &lock_a;
+            next_grid_buffer = buffer_b;
+            next_grid_lock = &lock_b;
         }
-        else {
-            //buffer b will be read from
-            pthread_rwlock_rdlock(&lock_b);
-
-            //x moves diagonally
-            int next_row_x, next_col_x;
-            if(buffer_b[X].is_moving) {
-                next_row_x = calculate_next_row_position(buffer_b[X].row);
-                next_col_x = calculate_next_col_position(buffer_b[X].col);
-            }
-            else{
-                next_row_x = buffer_b[X].row;
-                next_col_x = buffer_b[X].col;
-            }
-
-            //y moves vertically
-            int next_row_y, next_col_y;
-            if(buffer_b[Y].is_moving) {
-                next_row_y = calculate_next_row_position(buffer_b[Y].row);
-                next_col_y = 2;
-            }
-            else{
-                next_row_y = buffer_b[Y].row;
-                next_col_y = buffer_b[Y].col;
-            }
-
-            //z moves horizontally
-            int next_row_z, next_col_z;
-            if(buffer_b[Z].is_moving) {
-                next_row_z = 3;
-                next_col_z = calculate_next_col_position(buffer_b[Z].col);
-            }
-            else{
-                next_row_z = buffer_b[Z].row;
-                next_col_z = buffer_b[Z].col;
-            }
-
-            pthread_rwlock_unlock(&lock_b);
-
-            //buffer a will be written to
-            pthread_rwlock_wrlock(&lock_a);
-
-            //saves the next position of train X in buffer a
-            buffer_a[X].buffer[buffer_a[X].row][buffer_a[X].col] = false;
-            buffer_a[X].buffer[next_row_x][next_col_x] = true;
-            buffer_a[X].row = next_row_x;
-            buffer_a[X].col = next_col_x;
-
-            //saves the next position of train Y in buffer b
-            buffer_a[Y].buffer[buffer_a[Y].row][buffer_a[Y].col] = false;
-            buffer_a[Y].buffer[next_row_y][next_col_y] = true;
-            buffer_a[Y].row = next_row_y;
-			buffer_a[Y].col = next_col_y;
-
-            //saves the next position of train Z in buffer b
-            buffer_a[Z].buffer[buffer_a[Z].row][buffer_a[Z].col] = false;
-            buffer_a[Z].buffer[next_row_z][next_col_z] = true;
-			buffer_a[Z].row = next_row_z;
-            buffer_a[Z].col = next_col_z;
-
-            pthread_rwlock_unlock(&lock_a);
+        else{
+            current_grid_buffer = buffer_b;
+            current_grid_lock = &lock_b;
+            next_grid_buffer = buffer_a;
+            next_grid_lock = &lock_a;
         }
+        
+        //current buffer will be read from
+        pthread_rwlock_rdlock(current_grid_lock);
+        
+        //x moves diagonally if it is moving
+        int next_row_x, next_col_x;
+        if(current_grid_buffer[X].is_moving) {
+            next_row_x = calculate_next_row_position(current_grid_buffer[X].row);
+            next_col_x = calculate_next_col_position(current_grid_buffer[X].col);
+        }
+        else{
+            next_row_x = current_grid_buffer[X].row;
+            next_col_x = current_grid_buffer[X].col;
+        }
+        //y moves vertically if it is moving
+        int next_row_y, next_col_y;
+        if(current_grid_buffer[Y].is_moving) {
+            next_row_y = calculate_next_row_position(current_grid_buffer[Y].row);
+            next_col_y = 2;
+        }
+        else{
+            next_row_y = current_grid_buffer[Y].row;
+            next_col_y = current_grid_buffer[Y].col;
+        }
+        //z moves horizontally if it is moving
+        int next_row_z, next_col_z;
+        if(current_grid_buffer[Z].is_moving) {
+            next_row_z = 3;
+            next_col_z = calculate_next_col_position(current_grid_buffer[Z].col);
+        }
+        else{
+            next_row_z = current_grid_buffer[Z].row;
+            next_col_z = current_grid_buffer[Z].col;
+        }
+        
+        pthread_rwlock_unlock(current_grid_lock);
+        
+        //next buffer will be written to
+        pthread_rwlock_wrlock(next_grid_lock);
+        
+        //saves the next position of train X in buffer b
+        next_grid_buffer[X].buffer[next_grid_buffer[X].row][next_grid_buffer[X].col] = false;
+        next_grid_buffer[X].buffer[next_row_x][next_col_x] = true;
+        next_grid_buffer[X].row = next_row_x;
+        next_grid_buffer[X].col = next_col_x;
+        //saves the next position of train Y in buffer b
+        next_grid_buffer[Y].buffer[next_grid_buffer[Y].row][next_grid_buffer[Y].col] = false;
+        next_grid_buffer[Y].buffer[next_row_y][next_col_y] = true;
+        next_grid_buffer[Y].row = next_row_y;
+        next_grid_buffer[Y].col = next_col_y;
+        //saves the next position of train Z in buffer b
+        next_grid_buffer[Z].buffer[next_grid_buffer[Z].row][next_grid_buffer[Z].col] = false;
+        next_grid_buffer[Z].buffer[next_row_z][next_col_z] = true;
+        next_grid_buffer[Z].row = next_row_z;
+        next_grid_buffer[Z].col = next_col_z;
+        
+        pthread_rwlock_unlock(next_grid_lock);
+        
         which_buffer = !which_buffer;
         //waits for each of the other threads to finish execution
         pthread_barrier_wait(&timing_barrier);
@@ -211,80 +163,59 @@ void *determine_current_positions(void *threadid){
     bool which_buffer = true;
     while(true){
         sem_wait(&buffer_updated_sem);
+
+        grid_buffer* current_grid_buffer;
+        pthread_rwlock_t* current_grid_lock;
+        position_buffer* current_position_buffer;
+        pthread_rwlock_t* current_position_lock;
         if(which_buffer){
-            //buffer_a will be read from
-            pthread_rwlock_rdlock(&lock_a);
-
-            //stores the current position of each of the trains
-            int current_row_x = buffer_a[X].row;
-            int current_col_x = buffer_a[X].col;
-            int is_moving_x = buffer_a[X].is_moving;
-
-            int current_row_y = buffer_a[Y].row;
-            int current_col_y = buffer_a[Y].col;
-            int is_moving_y = buffer_a[Y].is_moving;
-
-            int current_row_z = buffer_a[Z].row;
-            int current_col_z = buffer_a[Z].col;
-            int is_moving_z = buffer_a[Z].is_moving;
-
-            pthread_rwlock_unlock(&lock_a);
-
-            //buffer c will be updated to current position values
-            pthread_rwlock_wrlock(&lock_c);
-
-            //updates the appropriate buffer with current train positions and their movement status
-            buffer_c.buffer[0][0] = current_row_x;
-            buffer_c.buffer[0][1] = current_col_x;
-            buffer_c.buffer[0][2] = is_moving_x;
-
-            buffer_c.buffer[1][0] = current_row_y;
-            buffer_c.buffer[1][1] = current_col_y;
-            buffer_c.buffer[1][2] = is_moving_y;
-
-            buffer_c.buffer[2][0] = current_row_z;
-            buffer_c.buffer[2][1] = current_col_z;
-            buffer_c.buffer[2][2] = is_moving_z;
-
-            pthread_rwlock_unlock(&lock_c);
+            current_grid_buffer = buffer_a;
+            current_grid_lock = &lock_a;
+            current_position_buffer = &buffer_c;
+            current_position_lock = &lock_c;
         }
         else{
-            //buffer_b will be read from
-            pthread_rwlock_rdlock(&lock_b);
-
-            //stores the current position of each of the trains
-            int current_row_x = buffer_b[X].row;
-            int current_col_x = buffer_b[X].col;
-            int is_moving_x = buffer_b[X].is_moving;
-
-            int current_row_y = buffer_b[Y].row;
-            int current_col_y = buffer_b[Y].col;
-            int is_moving_y = buffer_b[Y].is_moving;
-
-            int current_row_z = buffer_b[Z].row;
-            int current_col_z = buffer_b[Z].col;
-            int is_moving_z = buffer_b[Z].is_moving;
-
-            pthread_rwlock_unlock(&lock_b);
-
-            //buffer d will be updated to current position values
-            pthread_rwlock_wrlock(&lock_d);
-
-            //updates the appropriate buffer with current train positions. Stored as a character
-            buffer_d.buffer[0][0] = current_row_x;
-            buffer_d.buffer[0][1] = current_col_x;
-            buffer_d.buffer[0][2] = is_moving_x;
-
-            buffer_d.buffer[1][0] = current_row_y;
-            buffer_d.buffer[1][1] = current_col_y;
-            buffer_d.buffer[1][2] = is_moving_y;
-
-            buffer_d.buffer[2][0] = current_row_z;
-            buffer_d.buffer[2][1] = current_col_z;
-            buffer_d.buffer[2][2] = is_moving_z;
-
-            pthread_rwlock_unlock(&lock_d);
+            current_grid_buffer = buffer_b;
+            current_grid_lock = &lock_b;
+            current_position_buffer = &buffer_d;
+            current_position_lock = &lock_d;
         }
+        
+        //current_grid_buffer will be read from
+        pthread_rwlock_rdlock(current_grid_lock);
+        
+        //stores the current position of each of the trains
+        int current_row_x = current_grid_buffer[X].row;
+        int current_col_x = current_grid_buffer[X].col;
+        int is_moving_x = current_grid_buffer[X].is_moving;
+        int current_row_y = current_grid_buffer[Y].row;
+        int current_col_y = current_grid_buffer[Y].col;
+        int is_moving_y = current_grid_buffer[Y].is_moving;
+        int current_row_z = current_grid_buffer[Z].row;
+        int current_col_z = current_grid_buffer[Z].col;
+        int is_moving_z = current_grid_buffer[Z].is_moving;
+        
+        pthread_rwlock_unlock(current_grid_lock);
+        
+        //buffer c will be updated to current position values
+        pthread_rwlock_wrlock(current_position_lock);
+        
+        //updates the appropriate buffer with current train positions and their movement status
+        current_position_buffer->buffer[0][0] = current_row_x;
+        current_position_buffer->buffer[0][1] = current_col_x;
+        current_position_buffer->buffer[0][2] = is_moving_x;
+        
+        current_position_buffer->buffer[1][0] = current_row_y;
+        current_position_buffer->buffer[1][1] = current_col_y;
+        current_position_buffer->buffer[1][2] = is_moving_y;
+        
+        current_position_buffer->buffer[2][0] = current_row_z;
+        current_position_buffer->buffer[2][1] = current_col_z;
+        current_position_buffer->buffer[2][2] = is_moving_z;
+        
+        pthread_rwlock_unlock(current_position_lock);
+        
+            
         which_buffer = !which_buffer;
         //waits for each of the other threads to finish execution
         pthread_barrier_wait(&timing_barrier);
@@ -439,6 +370,16 @@ void central_command_center(){
             current_grid = buffer_a;
             grid_lock = &lock_a;
         }
+
+        pthread_rwlock_rdlock(current_position_lock);
+        for(int i = 0; i < 3; i++){
+            if(is_collision(current_position_buffer, i)){
+                printf("%d\n", i);
+                printf("THERE IS A COLLISION WITH TRAIN %d at time %d\n", i, time);
+            }
+            assert(!is_collision(current_position_buffer, i));
+        }
+        pthread_rwlock_unlock(current_position_lock);
 
         pthread_rwlock_wrlock(current_position_lock);
         update_stopped_trains(current_position_buffer, look_ahead_amount, time);
