@@ -440,10 +440,12 @@ void central_command_center(){
             grid_lock = &lock_a;
         }
 
+        //checks if any of the trains currently stopped should be freed
         pthread_rwlock_wrlock(current_position_lock);
         update_stopped_trains(current_position_buffer, look_ahead_amount, time);
         pthread_rwlock_unlock(current_position_lock);
 
+        //checks where the trains will be in the future
         position_buffer* future_positions = new position_buffer[look_ahead_amount];
         pthread_rwlock_rdlock(current_position_lock);
         initialize_future_positions(current_position_buffer, future_positions, look_ahead_amount);
