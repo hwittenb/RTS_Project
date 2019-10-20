@@ -310,7 +310,7 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* cu
     int row_y = previous_second->buffer[1][0];
     int col_y = previous_second->buffer[1][1];
     if(previous_second->buffer[1][2] == 1)
-        row_y = calculate_next_col_position(row_y);
+        row_y = calculate_next_row_position(row_y);
     current_second->buffer[1][0] = row_y;
     current_second->buffer[1][1] = col_y;
     current_second->buffer[1][2] = previous_second->buffer[1][2];
@@ -439,20 +439,6 @@ void central_command_center(){
             current_grid = buffer_b;
             grid_lock = &lock_b;
         }
-
-        if(time == 248){
-            printf("here;");
-        }
-
-        pthread_rwlock_rdlock(current_position_lock);
-        for(int i = 0; i < 3; i++){
-            if(is_collision(current_position_buffer, i)){
-                printf("%d\n", i);
-                printf("THERE IS A COLLISION WITH TRAIN %d at time %d\n", i, time);
-            }
-            assert(!is_collision(current_position_buffer, i));
-        }
-        pthread_rwlock_unlock(current_position_lock);
 
         pthread_rwlock_wrlock(current_position_lock);
         update_stopped_trains(current_position_buffer, look_ahead_amount, time);
