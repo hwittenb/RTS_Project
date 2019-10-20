@@ -238,7 +238,7 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* cu
     int row_y = previous_second->buffer[1][0];
     int col_y = previous_second->buffer[1][1];
     if(previous_second->buffer[1][2] == 1)
-        row_y = calculate_next_col_position(row_y);
+        row_y = calculate_next_row_position(row_y);
     current_second->buffer[1][0] = row_y;
     current_second->buffer[1][1] = col_y;
     current_second->buffer[1][2] = previous_second->buffer[1][2];
@@ -338,7 +338,7 @@ void central_command_center(){
     int time = 1;
 
     //this is an array for storing the future positions of the trains. time % look_ahead_amount will give the current index of the future_positions buffer
-    int look_ahead_amount = 2;
+    int look_ahead_amount = 3;
 
     //time_point start and finish are used to track how long P3 takes to run on each iteration
     high_resolution_clock::time_point start, finish;
