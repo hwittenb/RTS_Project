@@ -46,19 +46,6 @@ sem_t buffer_updated_sem;
 
 pthread_barrier_t timing_barrier;
 
-void print_buffer(grid_buffer* buffer){
-    for(int plane = 0; plane<3; plane++){
-        for(int row = 0; row < 8; row++){
-            for(int col = 0; col < 7; col++){
-                printf("%d | ", buffer[plane].buffer[row][col]);
-            }
-            printf("\n");
-        }
-        printf("___________________________________________\n");
-    }
-    printf("\n");
-}
-
 int calculate_next_row_position(int row){
     return (row+1) % 8;
 }
