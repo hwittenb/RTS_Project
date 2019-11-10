@@ -27,8 +27,11 @@ enum train{
     X, Y, Z
 };
 
+//for storing the failure rates of each of the trains in order of X, Y, and Z
+const int train_failure_rate[] = {50, 10, 1};
+
 //used for associating row number with train
-char train_index[] = {'X', 'Y', 'Z'};
+const char train_index[] = {'X', 'Y', 'Z'};
 
 grid_buffer buffer_a[3];
 grid_buffer buffer_b[3];
