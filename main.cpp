@@ -268,14 +268,14 @@ void get_trains_that_collide(position_buffer* position, set<int>* colliding_trai
     }
 }
 
-//checks if there is a collision involving the train train_num
-bool is_collision(position_buffer* position, int train_num){
+//checks if there is a collision involving the train train_num returns either train_num or -1 if collision has not occured
+int is_collision(position_buffer* position, int train_num){
     for(int compare_row = 0; compare_row < 3; compare_row++){
         if(compare_row != train_num && position->buffer[train_num][0] == position->buffer[compare_row][0] && position->buffer[train_num][1] == position->buffer[compare_row][1]){
-            return true;
+            return compare_row;
         }
     }
-    return false;
+    return -1;
 }
 
 //returns true if the train has been freed. Otherwise, returns false
@@ -290,7 +290,7 @@ bool free_train(position_buffer* current_positions, int train_num, int look_ahea
         else
             calculate_next_second(&test_buffer[i-1], &test_buffer[i]);
         //if this path has a collision involving train_num, this train cannot be freed
-        if(is_collision(&test_buffer[i], train_num)){
+        if(is_collision(&test_buffer[i], train_num) != -1){
             //if the trains collide, the train train_num cannot start moving
             current_positions->buffer[train_num][2] = 0;
             return false;
@@ -380,6 +380,22 @@ void central_command_center(){
             current_grid = buffer_a;
             grid_lock = &lock_a;
         }
+
+        //checks if an unavoidable collision has occurred
+        pthread_rwlock_rdlock(current_position_lock);
+        bool collision_occured = false;
+        int collision_train_one;
+        int collision_train_two = -1;
+        for(int collision_train_one = 0; collision_train_one < 3; collision_train_one++){
+            collision_train_two = is_collision(current_position_buffer, collision_train_one);
+            if(collision_train_two != -1){
+                collision_occured = true;
+                break;
+            }
+        }
+        pthread_rwlock_unlock(current_position_lock);
+        if(collision_occured)
+            printf("An unavoidable collision has occured between trains %c and %c at time %d.\n", train_index[collision_train_one], train_index[collision_train_two], time);
 
         //checks if any of the trains currently stopped should be freed
         pthread_rwlock_wrlock(current_position_lock);
@@ -493,6 +509,7 @@ void central_command_center(){
         sem_post(&buffer_updated_sem);
         sem_post(&buffer_updated_sem);
 
+        //todo: change this to outputing the positions of the trains
         printf("Time %d: %d trains are moving.\n", time, num_trains_moving);
 
         time++;
@@ -502,7 +519,7 @@ void central_command_center(){
         timespec tim;
         tim.tv_sec = 0;
         tim.tv_nsec = 1000000000L - duration_cast<nanoseconds>(finish-start).count();
-        //nanosleep(&tim, nullptr);
+        nanosleep(&tim, nullptr);
 
         //barrier is used to ensure that each of the 3 processes are synchronized
         pthread_barrier_wait(&timing_barrier);
