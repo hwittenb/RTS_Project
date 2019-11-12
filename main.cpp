@@ -4,7 +4,7 @@
 #include <chrono>
 #include <set>
 #include <semaphore.h>
-#include <cassert>
+#include <stdlib.h>
 
 //compile with g++ main.cpp -lpthread
 
@@ -324,6 +324,24 @@ bool train_interfere(position_buffer* future_positions, int look_ahead_seconds, 
     return false;
 }
 
+//finds the train with the highest chance of stopping and removes it from the collision set
+int find_train_to_stop(set<int>& collisions){
+    int min = *collisions.begin();
+    for(auto it = ++collisions.begin(); it != collisions.end(); it++){
+        if(train_failure_rate[*it] < train_failure_rate[min])
+            min = *it;
+    }
+    collisions.erase(min);
+    return min;
+}
+
+//returns true if the train has successfully stopped
+bool try_stop(int train_num){
+    int failure_rate = train_failure_rate[train_num];
+    int random = rand() % 100 + 1;
+    return random > failure_rate;
+}
+
 //function for the third process which will act as the central command center
 void central_command_center(){
     //odd time=buffer_c, even time=buffer_d
@@ -380,29 +398,76 @@ void central_command_center(){
             get_trains_that_collide(&future_positions[collision_check_time], &collisions);
             if (collisions.size() == 3) {
                 pthread_rwlock_wrlock(current_position_lock);
-                int train_one = *collisions.begin();
-                int train_two = *(++collisions.begin());
-                current_position_buffer->buffer[train_one][2] = 0;
-                current_position_buffer->buffer[train_two][2] = 0;
+                int train_one = find_train_to_stop(collisions);
+                int train_two = find_train_to_stop(collisions);
+                int stopped_trains = 0;
+
+                if(try_stop(train_one)){
+                    current_position_buffer->buffer[train_one][2] = 0;
+                    stopped_trains++;
+                }
+                else{
+                    printf("Train %c failed to stop at time %d.\n", train_index[train_one], time);
+                }
+
+                if(try_stop(train_two)){
+                    current_position_buffer->buffer[train_two][2] = 0;
+                    stopped_trains++;
+                }
+                else{
+                    printf("Train %c failed to stop at time %d.\n", train_index[train_two], time);
+                }
+
+                if(stopped_trains == 2){
+                    printf("The trains X, Y, and Z were set to collide, so trains %c and %c have stopped at time %d.\n", train_index[train_one], train_index[train_two], time);
+                }
+                else{
+                    int train_three = find_train_to_stop(collisions);
+                    if(try_stop(train_three)){
+                        current_position_buffer->buffer[train_three][2] = 0;
+                        printf("Because %d/2 trains successfully stopped, train %c was additionally stopped at time %d", stopped_trains, train_index[train_three], time);
+                    }
+                    else{
+                        printf("Train %c failed to stop at time %d.\n", train_index[train_three], time);
+                    }
+                }
+
                 pthread_rwlock_unlock(current_position_lock);
-                printf("The trains X, Y, and Z were set to collide, so trains %c and %c have stopped at time %d.\n", train_index[train_one], train_index[train_two], time);
                 break;
             }
             else if (collisions.size() == 2) {
-                int train_one = *collisions.begin();
-                int train_two = *(++collisions.begin());
+                int train_one = find_train_to_stop(collisions);
+                int train_two = find_train_to_stop(collisions);
                 int train_to_stop = train_one;
+                bool is_train_stopped = false;
                 pthread_rwlock_wrlock(current_position_lock);
-                if (!train_interfere(future_positions, look_ahead_amount, train_one, current_position_buffer->buffer[train_one][0], current_position_buffer->buffer[train_one][1])) {
-                    current_position_buffer->buffer[train_one][2] = 0;
+                //output if there was interference?
+                bool interference = train_interfere(future_positions, look_ahead_amount, train_one, current_position_buffer->buffer[train_one][0], current_position_buffer->buffer[train_one][1]);
+                if(!interference){
+                    if(try_stop(train_to_stop)){
+                        current_position_buffer->buffer[train_to_stop][2] = 0;
+                        is_train_stopped = true;
+                    }
+                    else{
+                        printf("Train %c failed to stop at time %d.\n", train_index[train_to_stop], time);
+                    }
                 }
-                else {
+
+                if(!is_train_stopped){
                     train_to_stop = train_two;
-                    current_position_buffer->buffer[train_two][2] = 0;
+                    if(try_stop(train_to_stop)){
+                        current_position_buffer->buffer[train_to_stop][2] = 0;
+                        is_train_stopped = true;
+                    }
+                    else{
+                        printf("Train %c failed to stop at time %d.\n", train_index[train_to_stop], time);
+                    }
                 }
                 pthread_rwlock_unlock(current_position_lock);
-                printf("The trains %c and %c were set to collide, so train %c was stopped at time %d.\n",
-                       train_index[train_one], train_index[train_two], train_index[train_to_stop], time);
+                if(is_train_stopped)
+                    printf("The trains %c and %c were set to collide, so train %c was stopped at time %d.\n", train_index[train_one], train_index[train_two], train_index[train_to_stop], time);
+                else
+                    printf("The trains %c and %c were set to collide, and both trains failed to stop at time %d\n", train_index[train_one], train_index[train_two], time);
                 break;
             }
         }
@@ -437,7 +502,7 @@ void central_command_center(){
         timespec tim;
         tim.tv_sec = 0;
         tim.tv_nsec = 1000000000L - duration_cast<nanoseconds>(finish-start).count();
-        nanosleep(&tim, nullptr);
+        //nanosleep(&tim, nullptr);
 
         //barrier is used to ensure that each of the 3 processes are synchronized
         pthread_barrier_wait(&timing_barrier);
@@ -473,6 +538,8 @@ int main() {
     buffer_a[Z].row = 3;
     buffer_a[Z].col = 6;
     buffer_a[Z].is_moving = true;
+
+    srand(time(NULL));
 
     //creates the two additional threads
     pthread_create(&process1, nullptr, calculate_next_step, nullptr);
