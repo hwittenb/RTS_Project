@@ -502,15 +502,17 @@ void central_command_center(){
             next_position_buffer->buffer[i][2] = current_position_buffer->buffer[i][2];
         }
 
+        printf("Time %d: %d trains are moving. Train X (%d, %d), train Y (%d, %d), train Z (%d, %d).\n", time, num_trains_moving,
+               current_position_buffer->buffer[0][0], current_position_buffer->buffer[0][1],
+               current_position_buffer->buffer[1][0], current_position_buffer->buffer[1][1],
+               current_position_buffer->buffer[2][0], current_position_buffer->buffer[2][1]);
+
         pthread_rwlock_unlock(current_position_lock);
         pthread_rwlock_unlock(next_position_lock);
         pthread_rwlock_unlock(grid_lock);
 
         sem_post(&buffer_updated_sem);
         sem_post(&buffer_updated_sem);
-
-        //todo: change this to outputing the positions of the trains
-        printf("Time %d: %d trains are moving.\n", time, num_trains_moving);
 
         time++;
         finish = high_resolution_clock::now();
