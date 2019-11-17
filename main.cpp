@@ -5,6 +5,7 @@
 #include <set>
 #include <semaphore.h>
 #include <stdlib.h>
+#include <functional>
 
 //compile with g++ main.cpp -lpthread
 
@@ -16,6 +17,8 @@ struct grid_buffer{
     int row;
     int col;
     bool is_moving;
+    function<int(int)> x_movement_func;
+    function<int(int)> y_movement_func;
 };
 
 struct position_buffer{
@@ -55,6 +58,26 @@ int calculate_next_row_position(int row){
 
 int calculate_next_col_position(int col){
     return (col+1) % 7;
+}
+
+int north_move(int row){
+    if(row == 0)
+        return 7;
+    return row-1;
+}
+
+int south_move(int row){
+    return (row+1) % 8;
+}
+
+int east_move(int col){
+    return (col+1) % 7;
+}
+
+int west_move(int col){
+    if(col == 0)
+        return 6;
+    return col - 1;
 }
 
 //this is the method for process 1
@@ -533,6 +556,8 @@ int main() {
     pthread_t process1;
     pthread_t process2;
 
+    srand(time(NULL));
+
     pthread_rwlock_init(&lock_a, nullptr);
     pthread_rwlock_init(&lock_b, nullptr);
     pthread_rwlock_init(&lock_c, nullptr);
@@ -544,21 +569,19 @@ int main() {
 
     //initializes buffers for starting values
     buffer_a[X].buffer[0][0] = true;
-    buffer_a[X].row = 0;
-    buffer_a[X].col = 0;
+    buffer_a[X].row = rand() % 8;
+    buffer_a[X].col = rand() % 7;
     buffer_a[X].is_moving = true;
 
     buffer_a[Y].buffer[0][2] = true;
-    buffer_a[Y].row = 0;
-    buffer_a[Y].col = 2;
+    buffer_a[Y].row = rand() % 8;
+    buffer_a[Y].col = rand() % 7;
     buffer_a[Y].is_moving = true;
 
     buffer_a[Z].buffer[3][6] = true;
-    buffer_a[Z].row = 3;
-    buffer_a[Z].col = 6;
+    buffer_a[Z].row = rand() % 8;
+    buffer_a[Z].col = rand() % 7;
     buffer_a[Z].is_moving = true;
-
-    srand(time(NULL));
 
     //creates the two additional threads
     pthread_create(&process1, nullptr, calculate_next_step, nullptr);
