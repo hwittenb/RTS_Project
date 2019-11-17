@@ -35,12 +35,6 @@ enum train{
     X, Y, Z
 };
 
-//for storing the failure rates of each of the trains in order of X, Y, and Z
-const int train_failure_rate[] = {50, 10, 1};
-
-//used for associating row number with train
-const char train_index[] = {'X', 'Y', 'Z'};
-
 grid_buffer buffer_a[3];
 grid_buffer buffer_b[3];
 
@@ -369,7 +363,7 @@ bool free_train(position_buffer* current_positions, int train_num, int look_ahea
             return false;
         }
     }
-    printf("Train %c has begun movement again at time %d.\n", train_index[train_num], time);
+    printf("Train %c has begun movement again at time %d.\n", trains[train_num].train_char, time);
     return true;
 }
 
@@ -401,7 +395,7 @@ bool train_interfere(position_buffer* future_positions, int look_ahead_seconds, 
 int find_train_to_stop(set<int>& collisions){
     int min = *collisions.begin();
     for(auto it = ++collisions.begin(); it != collisions.end(); it++){
-        if(train_failure_rate[*it] < train_failure_rate[min])
+        if(trains[*it].failure_rate < trains[min].failure_rate)
             min = *it;
     }
     collisions.erase(min);
@@ -410,7 +404,7 @@ int find_train_to_stop(set<int>& collisions){
 
 //returns true if the train has successfully stopped
 bool try_stop(int train_num){
-    int failure_rate = train_failure_rate[train_num];
+    int failure_rate = trains[train_num].failure_rate;
     int random = rand() % 100 + 1;
     return random > failure_rate;
 }
@@ -468,7 +462,7 @@ void central_command_center(){
         }
         pthread_rwlock_unlock(current_position_lock);
         if(collision_occured)
-            printf("An unavoidable collision has occured between trains %c and %c at time %d.\n", train_index[collision_train_one], train_index[collision_train_two], time);
+            printf("An unavoidable collision has occured between trains %c and %c at time %d.\n", trains[collision_train_one].train_char, trains[collision_train_two].train_char, time);
 
         //checks if any of the trains currently stopped should be freed
         pthread_rwlock_wrlock(current_position_lock);
@@ -496,7 +490,7 @@ void central_command_center(){
                     stopped_trains++;
                 }
                 else{
-                    printf("Train %c failed to stop at time %d.\n", train_index[train_one], time);
+                    printf("Train %c failed to stop at time %d.\n", trains[train_one].train_char, time);
                 }
 
                 if(try_stop(train_two)){
@@ -504,20 +498,20 @@ void central_command_center(){
                     stopped_trains++;
                 }
                 else{
-                    printf("Train %c failed to stop at time %d.\n", train_index[train_two], time);
+                    printf("Train %c failed to stop at time %d.\n", trains[train_two].train_char, time);
                 }
 
                 if(stopped_trains == 2){
-                    printf("The trains X, Y, and Z were set to collide, so trains %c and %c have stopped at time %d.\n", train_index[train_one], train_index[train_two], time);
+                    printf("The trains X, Y, and Z were set to collide, so trains %c and %c have stopped at time %d.\n", trains[train_one].train_char, trains[train_two].train_char, time);
                 }
                 else{
                     int train_three = find_train_to_stop(collisions);
                     if(try_stop(train_three)){
                         current_position_buffer->buffer[train_three][2] = 0;
-                        printf("Because %d/2 trains successfully stopped, train %c was additionally stopped at time %d", stopped_trains, train_index[train_three], time);
+                        printf("Because %d/2 trains successfully stopped, train %c was additionally stopped at time %d", stopped_trains, trains[train_three].train_char, time);
                     }
                     else{
-                        printf("Train %c failed to stop at time %d.\n", train_index[train_three], time);
+                        printf("Train %c failed to stop at time %d.\n", trains[train_three].train_char, time);
                     }
                 }
 
@@ -538,7 +532,7 @@ void central_command_center(){
                         is_train_stopped = true;
                     }
                     else{
-                        printf("Train %c failed to stop at time %d.\n", train_index[train_to_stop], time);
+                        printf("Train %c failed to stop at time %d.\n", trains[train_to_stop].train_char, time);
                     }
                 }
 
@@ -549,14 +543,14 @@ void central_command_center(){
                         is_train_stopped = true;
                     }
                     else{
-                        printf("Train %c failed to stop at time %d.\n", train_index[train_to_stop], time);
+                        printf("Train %c failed to stop at time %d.\n", trains[train_to_stop].train_char, time);
                     }
                 }
                 pthread_rwlock_unlock(current_position_lock);
                 if(is_train_stopped)
-                    printf("The trains %c and %c were set to collide, so train %c was stopped at time %d.\n", train_index[train_one], train_index[train_two], train_index[train_to_stop], time);
+                    printf("The trains %c and %c were set to collide, so train %c was stopped at time %d.\n", trains[train_one].train_char, trains[train_two].train_char, trains[train_to_stop].train_char, time);
                 else
-                    printf("The trains %c and %c were set to collide, and both trains failed to stop at time %d\n", train_index[train_one], train_index[train_two], time);
+                    printf("The trains %c and %c were set to collide, and both trains failed to stop at time %d\n", trains[train_one].train_char, trains[train_two].train_char, time);
                 break;
             }
         }
