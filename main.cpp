@@ -17,12 +17,17 @@ struct grid_buffer{
     int row;
     int col;
     bool is_moving;
-    function<int(int)> x_movement_func;
-    function<int(int)> y_movement_func;
 };
 
 struct position_buffer{
     int buffer[3][3];
+};
+
+struct train_information{
+    char train_char;
+    int failure_rate;
+    function<int(int)> col_movement_function;
+    function<int(int)> row_movement_function;
 };
 
 //enum created for readability
@@ -43,6 +48,8 @@ grid_buffer buffer_b[3];
 position_buffer buffer_c;
 position_buffer buffer_d;
 
+train_information trains[3];
+
 pthread_rwlock_t lock_a;
 pthread_rwlock_t lock_b;
 pthread_rwlock_t lock_c;
@@ -51,14 +58,6 @@ pthread_rwlock_t lock_d;
 sem_t buffer_updated_sem;
 
 pthread_barrier_t timing_barrier;
-
-int calculate_next_row_position(int row){
-    return (row+1) % 8;
-}
-
-int calculate_next_col_position(int col){
-    return (col+1) % 7;
-}
 
 int north_move(int row){
     if(row == 0)
@@ -78,6 +77,48 @@ int west_move(int col){
     if(col == 0)
         return 6;
     return col - 1;
+}
+
+int no_move(int pos){
+    return pos;
+}
+
+string initialize_train_movement(function<int(int)>& x_func, function<int(int)>& y_func){
+    int selected_movement = rand() % 8;
+    switch(selected_movement){
+        case 0:
+            x_func = north_move;
+            y_func = no_move;
+            return "north";
+        case 1:
+            x_func = north_move;
+            y_func = east_move;
+            return "north-east";
+        case 2:
+            x_func = no_move;
+            y_func = east_move;
+            return "east";
+        case 3:
+            x_func = south_move;
+            y_func = east_move;
+            return "south-east";
+        case 4:
+            x_func = south_move;
+            y_func = no_move;
+            return "south";
+        case 5:
+            x_func = south_move;
+            y_func = west_move;
+            return "south-west";
+        case 6:
+            x_func = no_move;
+            y_func = west_move;
+            return "west";
+        default:
+            x_func = north_move;
+            y_func = west_move;
+            return "north-west";
+    }
 }
 
 //this is the method for process 1
@@ -109,31 +150,33 @@ void *calculate_next_step(void *threadid) {
         //current buffer will be read from
         pthread_rwlock_rdlock(current_grid_lock);
 
-        //x moves diagonally if it is moving
+        //x moves
         int next_row_x, next_col_x;
         if(current_grid_buffer[X].is_moving) {
-            next_row_x = calculate_next_row_position(current_grid_buffer[X].row);
-            next_col_x = calculate_next_col_position(current_grid_buffer[X].col);
+            next_row_x = trains[X].row_movement_function(current_grid_buffer[X].row);
+            next_col_x = trains[X].col_movement_function(current_grid_buffer[X].col);
         }
         else{
             next_row_x = current_grid_buffer[X].row;
             next_col_x = current_grid_buffer[X].col;
         }
-        //y moves vertically if it is moving
+        //y moves
         int next_row_y, next_col_y;
         if(current_grid_buffer[Y].is_moving) {
-            next_row_y = calculate_next_row_position(current_grid_buffer[Y].row);
-            next_col_y = 2;
+            next_row_y = trains[Y].row_movement_function(current_grid_buffer[Y].row);
+            next_col_y = trains[Y].col_movement_function(current_grid_buffer[Y].col);
         }
         else{
             next_row_y = current_grid_buffer[Y].row;
             next_col_y = current_grid_buffer[Y].col;
         }
-        //z moves horizontally if it is moving
+        //z moves with a velocity of 2
         int next_row_z, next_col_z;
         if(current_grid_buffer[Z].is_moving) {
-            next_row_z = 3;
-            next_col_z = calculate_next_col_position(current_grid_buffer[Z].col);
+            next_row_z = trains[Z].row_movement_function(current_grid_buffer[Z].row);
+            next_row_z = trains[Z].row_movement_function(next_row_z);
+            next_col_z = trains[Z].col_movement_function(current_grid_buffer[Z].col);
+            next_col_z = trains[Z].col_movement_function(next_col_z);
         }
         else{
             next_row_z = current_grid_buffer[Z].row;
@@ -242,8 +285,8 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* cu
     int row_x = previous_second->buffer[0][0];
     int col_x = previous_second->buffer[0][1];
     if(previous_second->buffer[0][2] == 1){
-        row_x = calculate_next_row_position(row_x);
-        col_x = calculate_next_col_position(col_x);
+        row_x = trains[X].row_movement_function(row_x);
+        col_x = trains[X].col_movement_function(col_x);
     }
     current_second->buffer[0][0] = row_x;
     current_second->buffer[0][1] = col_x;
@@ -252,8 +295,10 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* cu
     //calculate movement for y
     int row_y = previous_second->buffer[1][0];
     int col_y = previous_second->buffer[1][1];
-    if(previous_second->buffer[1][2] == 1)
-        row_y = calculate_next_row_position(row_y);
+    if(previous_second->buffer[1][2] == 1) {
+        row_y = trains[Y].row_movement_function(row_y);
+        col_y = trains[Y].col_movement_function(col_y);
+    }
     current_second->buffer[1][0] = row_y;
     current_second->buffer[1][1] = col_y;
     current_second->buffer[1][2] = previous_second->buffer[1][2];
@@ -261,8 +306,13 @@ void calculate_next_second(position_buffer* previous_second, position_buffer* cu
     //calculate movement for z
     int row_z = previous_second->buffer[2][0];
     int col_z = previous_second->buffer[2][1];
-    if(previous_second->buffer[2][2] == 1)
-        col_z = calculate_next_col_position(col_z);
+    //z moves with a velocity of 2
+    if(previous_second->buffer[2][2] == 1) {
+        row_z = trains[Z].row_movement_function(row_z);
+        row_z = trains[Z].row_movement_function(row_z);
+        col_z = trains[Z].col_movement_function(col_z);
+        col_z = trains[Z].col_movement_function(col_z);
+    }
     current_second->buffer[2][0] = row_z;
     current_second->buffer[2][1] = col_z;
     current_second->buffer[2][2] = previous_second->buffer[2][2];
@@ -409,7 +459,7 @@ void central_command_center(){
         bool collision_occured = false;
         int collision_train_one;
         int collision_train_two = -1;
-        for(int collision_train_one = 0; collision_train_one < 3; collision_train_one++){
+        for(collision_train_one = 0; collision_train_one < 3; collision_train_one++){
             collision_train_two = is_collision(current_position_buffer, collision_train_one);
             if(collision_train_two != -1){
                 collision_occured = true;
@@ -582,6 +632,22 @@ int main() {
     buffer_a[Z].row = rand() % 8;
     buffer_a[Z].col = rand() % 7;
     buffer_a[Z].is_moving = true;
+
+    //initializes train information. this is readonly after initialization, so no protection is required
+    trains[X].train_char = 'X';
+    trains[X].failure_rate = 50;
+    string x_direction = initialize_train_movement(trains[X].col_movement_function, trains[X].row_movement_function);
+    printf("X is starting at (%d,%d) with initial velocity %s.\n", buffer_a[X].row, buffer_a[X].col, x_direction.c_str());
+
+    trains[Y].train_char = 'Y';
+    trains[Y].failure_rate = 10;
+    string y_direction = initialize_train_movement(trains[Y].col_movement_function, trains[Y].row_movement_function);
+    printf("Y is starting at (%d,%d) with initial velocity %s.\n", buffer_a[Y].row, buffer_a[Y].col, y_direction.c_str());
+
+    trains[Z].train_char = 'Z';
+    trains[Z].failure_rate = 1;
+    string z_direction = initialize_train_movement(trains[Z].col_movement_function, trains[Z].row_movement_function);
+    printf("Z is starting at (%d,%d) with initial velocity %s.\n\n", buffer_a[Z].row, buffer_a[Z].col, z_direction.c_str());
 
     //creates the two additional threads
     pthread_create(&process1, nullptr, calculate_next_step, nullptr);
